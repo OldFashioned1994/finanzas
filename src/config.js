@@ -1,18 +1,19 @@
 // ============================================================================
-//  CONFIGURACIÓN EDITABLE
+//  SEMILLA INICIAL DE CATEGORÍAS Y MÉTODOS
 //  ----------------------------------------------------------------------------
-//  Este es EL archivo para tocar cuando quieras agregar/quitar/renombrar
-//  categorías, subcategorías o métodos de pago. No hace falta tocar nada más.
+//  OJO: esto ya NO es la fuente de verdad del día a día.
+//
+//  Ahora las categorías, subcategorías y métodos se editan DESDE LA APP
+//  (Ajustes → Categorías / Métodos de pago) y viven en la base local. Este
+//  archivo solo se usa UNA VEZ, la primera vez que la app corre en un
+//  dispositivo, para que no arranque vacía.
+//
+//  Tocar acá no cambia nada en un dispositivo donde la app ya se usó: sirve
+//  únicamente para definir con qué arranca una instalación nueva.
 //
 //  Formato:
 //    categorias = { "Nombre de la categoría": ["SUBCAT 1", "SUBCAT 2", ...] }
 //    metodos    = ["Método 1", "Método 2", ...]
-//
-//  Reglas simples:
-//    - El orden en que las escribís es el orden en que aparecen los botones.
-//    - Una categoría puede tener una sola subcategoría (ej: Educación: CURSOS).
-//    - Si renombrás algo, los movimientos viejos conservan el texto anterior;
-//      no se rompen, solo quedan con el nombre con el que se cargaron.
 // ============================================================================
 
 export const CONFIG = {

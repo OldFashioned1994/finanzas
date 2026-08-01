@@ -1,219 +1,362 @@
-import { useEffect, useRef, useState } from 'react'
-import { TrendingDown, TrendingUp, Calendar, Check, Plus, StickyNote } from 'lucide-react'
-import { getCategorias, getSubcategorias, getMetodos, getIcono } from '../config'
-import { agregarMovimiento, actualizarMovimiento } from '../db'
-import { hoyISO } from '../utils/format'
-import { parseMonto, limpiarInputMonto } from '../utils/monto'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  TrendingDown,
+  TrendingUp,
+  Check,
+  Plus,
+  StickyNote,
+  Equal,
+  Zap,
+  CalendarDays,
+  X,
+} from 'lucide-react'
+import { agregarMovimiento, actualizarMovimiento, borrarMovimiento } from '../db'
+import { useDatos, useCategoriasDe, useMetodosDe, useIconos } from '../state/datos'
+import { hoyISO, formatFecha } from '../utils/format'
+import { combosFrecuentes, defaultsDeCategoria, rankingUso } from '../utils/calc'
+import * as C from '../utils/calculadora'
+import Numpad from './Numpad'
 import Chip from './Chip'
 
-const estadoInicial = (tipo = 'gasto') => ({
-  tipo,
-  fecha: hoyISO(),
-  monto: '',
-  categoria: '',
-  subcategoria: '',
-  metodo: '',
-  descripcion: '',
-})
-
-export default function CargarMovimiento({ editando, onGuardado, onCancelarEdicion }) {
-  const [form, setForm] = useState(estadoInicial())
-  const [mostrarNota, setMostrarNota] = useState(false)
-  const montoRef = useRef(null)
-
+export default function CargarMovimiento({ editando, plantilla, onGuardado, onCancelarEdicion }) {
+  const { movimientos, ajustes } = useDatos()
+  const icono = useIconos()
   const esEdicion = Boolean(editando)
 
-  // Cargar datos al entrar en modo edición.
+  const [tipo, setTipo] = useState('gasto')
+  const [fecha, setFecha] = useState(hoyISO())
+  const [calc, setCalc] = useState(C.estadoInicialCalc)
+  const [categoria, setCategoria] = useState('')
+  const [subcategoria, setSubcategoria] = useState('')
+  const [metodo, setMetodo] = useState('')
+  const [descripcion, setDescripcion] = useState('')
+  const [mostrarNota, setMostrarNota] = useState(false)
+  // Si el usuario eligió a mano, dejamos de pisarle la elección con sugerencias.
+  const tocado = useRef({ sub: false, metodo: false })
+  const fechaRef = useRef(null)
+
+  const categorias = useCategoriasDe(tipo)
+  const metodos = useMetodosDe(tipo)
+  const ordenPorUso = ajustes.ordenPorUso !== false
+
+  // --- Sugerencias a partir del historial ---------------------------------
+
+  const combos = useMemo(
+    () => (esEdicion ? [] : combosFrecuentes(movimientos, tipo, 4)),
+    [movimientos, tipo, esEdicion],
+  )
+
+  const categoriasOrdenadas = useMemo(() => {
+    if (!ordenPorUso) return categorias
+    const uso = rankingUso(movimientos, tipo, 'categoria')
+    return [...categorias].sort((a, b) => (uso.get(b.nombre) ?? 0) - (uso.get(a.nombre) ?? 0))
+  }, [categorias, movimientos, tipo, ordenPorUso])
+
+  const metodosOrdenados = useMemo(() => {
+    if (!ordenPorUso) return metodos
+    const uso = rankingUso(movimientos, tipo, 'metodo')
+    return [...metodos].sort((a, b) => (uso.get(b.nombre) ?? 0) - (uso.get(a.nombre) ?? 0))
+  }, [metodos, movimientos, tipo, ordenPorUso])
+
+  const catActual = categorias.find((c) => c.nombre === categoria)
+  const subcategorias = catActual?.subcategorias ?? []
+
+  // --- Modo edición --------------------------------------------------------
+
   useEffect(() => {
-    if (editando) {
-      setForm({
-        tipo: editando.tipo,
-        fecha: editando.fecha,
-        monto: String(editando.monto).replace('.', ','),
-        categoria: editando.categoria,
-        subcategoria: editando.subcategoria,
-        metodo: editando.metodo,
-        descripcion: editando.descripcion || '',
-      })
-      setMostrarNota(Boolean(editando.descripcion))
-    }
+    if (!editando) return
+    setTipo(editando.tipo)
+    setFecha(editando.fecha)
+    setCalc(C.desdeNumero(editando.monto))
+    setCategoria(editando.categoria)
+    setSubcategoria(editando.subcategoria)
+    setMetodo(editando.metodo)
+    setDescripcion(editando.descripcion || '')
+    setMostrarNota(Boolean(editando.descripcion))
+    tocado.current = { sub: true, metodo: true }
   }, [editando])
 
-  // Foco en el monto al iniciar (abre teclado numérico).
+  // "Repetir" desde la lista: viene todo cargado menos la fecha, que pasa a ser
+  // hoy. El monto queda puesto para confirmarlo o corregirlo.
   useEffect(() => {
-    if (!esEdicion) montoRef.current?.focus()
-  }, [esEdicion])
+    if (!plantilla) return
+    setTipo(plantilla.tipo)
+    setFecha(hoyISO())
+    setCalc(C.desdeNumero(plantilla.monto))
+    setCategoria(plantilla.categoria)
+    setSubcategoria(plantilla.subcategoria)
+    setMetodo(plantilla.metodo)
+    setDescripcion(plantilla.descripcion || '')
+    setMostrarNota(Boolean(plantilla.descripcion))
+    tocado.current = { sub: true, metodo: true }
+  }, [plantilla])
 
-  const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }))
+  // --- Acciones ------------------------------------------------------------
 
-  const cambiarTipo = (tipo) => {
-    if (tipo === form.tipo) return
-    // Cambian las opciones, así que reseteo categoría/subcategoría/método.
-    setForm((f) => ({ ...f, tipo, categoria: '', subcategoria: '', metodo: '' }))
+  const cambiarTipo = (t) => {
+    if (t === tipo) return
+    setTipo(t)
+    setCategoria('')
+    setSubcategoria('')
+    setMetodo('')
+    tocado.current = { sub: false, metodo: false }
   }
 
+  // Elegir categoría completa sola la subcategoría y el método que más usás
+  // en ella. Si después tocás otra cosa, manda tu elección.
   const elegirCategoria = (cat) => {
-    setForm((f) => ({
-      ...f,
-      categoria: cat,
-      // Si la subcategoría actual no pertenece a la nueva categoría, la limpio.
-      subcategoria: getSubcategorias(f.tipo, cat).includes(f.subcategoria)
-        ? f.subcategoria
-        : '',
-    }))
+    setCategoria(cat)
+    const sugeridos = defaultsDeCategoria(movimientos, tipo, cat)
+    const subsDeCat = categorias.find((c) => c.nombre === cat)?.subcategorias ?? []
+
+    if (!tocado.current.sub) {
+      setSubcategoria(sugeridos.subcategoria || (subsDeCat.length === 1 ? subsDeCat[0] : ''))
+    } else if (!subsDeCat.includes(subcategoria)) {
+      setSubcategoria(subsDeCat.length === 1 ? subsDeCat[0] : '')
+      tocado.current.sub = false
+    }
+
+    if (!tocado.current.metodo && sugeridos.metodo) setMetodo(sugeridos.metodo)
   }
 
-  const categorias = getCategorias(form.tipo)
-  const subcategorias = form.categoria ? getSubcategorias(form.tipo, form.categoria) : []
-  const metodos = getMetodos(form.tipo)
+  const aplicarCombo = (combo) => {
+    navigator.vibrate?.(12)
+    setCategoria(combo.categoria)
+    setSubcategoria(combo.subcategoria)
+    setMetodo(combo.metodo)
+    tocado.current = { sub: true, metodo: true }
+  }
 
-  const montoNum = parseMonto(form.monto)
-  const completo =
-    Number.isFinite(montoNum) &&
-    montoNum > 0 &&
-    form.categoria &&
-    form.subcategoria &&
-    form.metodo
+  const elegirSub = (s) => {
+    tocado.current.sub = true
+    setSubcategoria(s)
+  }
 
-  const resetear = () => {
-    setForm((f) => estadoInicial(f.tipo)) // conservo el tipo elegido
+  const elegirMetodo = (m) => {
+    tocado.current.metodo = true
+    setMetodo(m)
+  }
+
+  const monto = C.valorCalc(calc)
+  const completo = Number.isFinite(monto) && monto > 0 && categoria && subcategoria && metodo
+  const pendiente = C.hayPendiente(calc)
+
+  const resetear = (nuevoTipo = tipo) => {
+    setCalc(C.limpiar())
+    setCategoria('')
+    setSubcategoria('')
+    setMetodo('')
+    setDescripcion('')
     setMostrarNota(false)
-    requestAnimationFrame(() => montoRef.current?.focus())
+    setFecha(hoyISO())
+    setTipo(nuevoTipo)
+    tocado.current = { sub: false, metodo: false }
   }
 
-  const guardar = async (e) => {
-    e.preventDefault()
+  const guardar = async () => {
+    if (pendiente) {
+      setCalc(C.igual(calc))
+      return
+    }
     if (!completo) return
+    navigator.vibrate?.(18)
 
     const datos = {
-      fecha: form.fecha,
-      tipo: form.tipo,
-      monto: montoNum,
-      categoria: form.categoria,
-      subcategoria: form.subcategoria,
-      metodo: form.metodo,
-      descripcion: form.descripcion.trim(),
+      fecha,
+      tipo,
+      monto: Math.round(monto * 100) / 100,
+      categoria,
+      subcategoria,
+      metodo,
+      descripcion: descripcion.trim(),
     }
 
     if (esEdicion) {
       await actualizarMovimiento(editando.id, datos)
       onGuardado?.({ msg: 'Cambios guardados', tone: 'ok' })
-    } else {
-      await agregarMovimiento(datos)
-      onGuardado?.({ msg: 'Movimiento guardado', tone: 'ok' })
-      resetear()
+      return
     }
+
+    const id = await agregarMovimiento(datos)
+    onGuardado?.({
+      msg: `Guardado · ${datos.subcategoria}`,
+      tone: 'ok',
+      // Deshacer: si te equivocaste de tecla, un toque y no pasó nada.
+      undo: () => borrarMovimiento(id),
+    })
+    resetear()
   }
 
-  const esGasto = form.tipo === 'gasto'
+  // --- Teclado físico (escritorio) -----------------------------------------
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const enInput = ['INPUT', 'TEXTAREA'].includes(e.target.tagName)
+      if (enInput) return
+      if (e.key >= '0' && e.key <= '9') setCalc((c) => C.digito(c, e.key))
+      else if (e.key === ',' || e.key === '.') setCalc((c) => C.coma(c))
+      else if (e.key === 'Backspace') setCalc((c) => C.retroceso(c))
+      else if (e.key === 'Escape') setCalc(C.limpiar())
+      else if (['+', '-', '*', '/'].includes(e.key)) {
+        const mapa = { '+': '+', '-': '−', '*': '×', '/': '÷' }
+        setCalc((c) => C.operador(c, mapa[e.key]))
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        guardar()
+      } else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const esGasto = tipo === 'gasto'
+  const display = C.displayCalc(calc)
+  const expresion = C.expresionCalc(calc)
+  const esHoy = fecha === hoyISO()
+  const ayer = desplazarDias(hoyISO(), -1)
 
   return (
-    <form onSubmit={guardar} className="flex min-h-full flex-col">
-      <div className="flex-1 space-y-5 px-4 pt-4">
-        {/* Tipo: gasto / ingreso */}
+    <div className="flex min-h-full flex-col">
+      <div className="flex-1 space-y-4 px-4 pt-3">
+        {/* Tipo */}
         <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-800/50 p-1.5 ring-1 ring-white/5">
-          <button
-            type="button"
+          <BotonTipo
+            activo={esGasto}
             onClick={() => cambiarTipo('gasto')}
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-base font-semibold transition-all active:scale-95 ${
-              esGasto
-                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25'
-                : 'text-slate-400'
-            }`}
+            Icon={TrendingDown}
+            clase="bg-rose-500 shadow-rose-500/25"
           >
-            <TrendingDown size={18} strokeWidth={2.5} />
             Gasto
-          </button>
-          <button
-            type="button"
+          </BotonTipo>
+          <BotonTipo
+            activo={!esGasto}
             onClick={() => cambiarTipo('ingreso')}
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-base font-semibold transition-all active:scale-95 ${
-              !esGasto
-                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
-                : 'text-slate-400'
-            }`}
+            Icon={TrendingUp}
+            clase="bg-emerald-500 shadow-emerald-500/25"
           >
-            <TrendingUp size={18} strokeWidth={2.5} />
             Ingreso
-          </button>
+          </BotonTipo>
         </div>
 
-        {/* Monto */}
-        <div>
-          <div
-            className={`flex items-center rounded-3xl border bg-slate-800/60 px-5 py-1 ring-1 ring-inset transition-colors ${
-              esGasto
-                ? 'border-rose-500/30 ring-rose-500/10 focus-within:border-rose-400'
-                : 'border-emerald-500/30 ring-emerald-500/10 focus-within:border-emerald-400'
-            }`}
-          >
-            <span className="text-3xl font-light text-slate-500">$</span>
-            <input
-              id="monto"
-              ref={montoRef}
-              type="text"
-              inputMode="decimal"
-              enterKeyHint="done"
-              placeholder="0"
-              value={form.monto}
-              onChange={(e) => set('monto', limpiarInputMonto(e.target.value))}
-              className="w-full bg-transparent px-2 py-3 text-4xl font-bold tracking-tight text-slate-50 outline-none placeholder:text-slate-600"
-            />
-          </div>
-        </div>
-
-        {/* Fecha */}
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-slate-400">
-            <Calendar size={15} /> Fecha
-          </span>
-          <div className="flex items-center gap-2">
-            {form.fecha !== hoyISO() && (
-              <button
-                type="button"
-                onClick={() => set('fecha', hoyISO())}
-                className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-indigo-300 active:scale-95"
-              >
-                Hoy
-              </button>
+        {/* Monto + fecha */}
+        <div
+          className={`rounded-3xl border bg-slate-900/50 px-5 py-3 ${
+            esGasto ? 'border-rose-500/25' : 'border-emerald-500/25'
+          }`}
+        >
+          <div className="flex h-4 items-center justify-end">
+            {expresion && (
+              <span className="text-sm font-medium text-slate-500 tabular-nums">{expresion}</span>
             )}
-            <input
-              id="fecha"
-              type="date"
-              value={form.fecha}
-              onChange={(e) => set('fecha', e.target.value)}
-              className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-base text-slate-100"
-            />
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-3xl font-light text-slate-500">$</span>
+            <span
+              className={`min-w-0 flex-1 truncate text-right text-[2.6rem] font-bold leading-tight tracking-tight tabular-nums ${
+                display ? 'text-slate-50' : 'text-slate-700'
+              }`}
+            >
+              {display || '0'}
+            </span>
+          </div>
+
+          <div className="mt-2 flex items-center justify-end gap-1.5 border-t border-white/5 pt-2">
+            <ChipFecha activo={esHoy} onClick={() => setFecha(hoyISO())}>
+              Hoy
+            </ChipFecha>
+            <ChipFecha activo={fecha === ayer} onClick={() => setFecha(ayer)}>
+              Ayer
+            </ChipFecha>
+            <button
+              type="button"
+              onClick={() => {
+                fechaRef.current?.showPicker?.() ?? fechaRef.current?.focus()
+              }}
+              className={`relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium ${
+                !esHoy && fecha !== ayer
+                  ? 'bg-indigo-500/20 text-indigo-200'
+                  : 'text-slate-400 active:bg-slate-800'
+              }`}
+            >
+              <CalendarDays size={15} />
+              {!esHoy && fecha !== ayer ? formatFecha(fecha) : 'Otro día'}
+              <input
+                ref={fechaRef}
+                type="date"
+                value={fecha}
+                onChange={(e) => e.target.value && setFecha(e.target.value)}
+                className="absolute inset-0 opacity-0"
+                tabIndex={-1}
+              />
+            </button>
           </div>
         </div>
+
+        {/* Frecuentes: un toque completa categoría + subcategoría + método */}
+        {combos.length > 0 && (
+          <div>
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-400">
+              <Zap size={14} className="text-amber-400" /> Frecuentes
+            </h2>
+            <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+              {combos.map((c) => {
+                const activo =
+                  c.categoria === categoria && c.subcategoria === subcategoria && c.metodo === metodo
+                return (
+                  <button
+                    key={`${c.categoria}|${c.subcategoria}|${c.metodo}`}
+                    type="button"
+                    onClick={() => aplicarCombo(c)}
+                    className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left transition-all active:scale-95 ${
+                      activo
+                        ? esGasto
+                          ? 'border-rose-400/60 bg-rose-500/20'
+                          : 'border-emerald-400/60 bg-emerald-500/20'
+                        : 'border-slate-700/70 bg-slate-800/50'
+                    }`}
+                  >
+                    <span className="text-lg leading-none">{icono(c.categoria)}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-100">
+                        {c.subcategoria}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">{c.metodo}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Categoría */}
         <Seccion titulo="Categoría">
           <div className="grid grid-cols-2 gap-2">
-            {categorias.map((cat) => (
+            {categoriasOrdenadas.map((cat) => (
               <Chip
-                key={cat}
-                label={cat}
-                icono={getIcono(cat)}
-                tone={form.tipo}
-                selected={form.categoria === cat}
-                onClick={() => elegirCategoria(cat)}
+                key={cat.id}
+                label={cat.nombre}
+                icono={cat.emoji}
+                tone={tipo}
+                selected={categoria === cat.nombre}
+                onClick={() => elegirCategoria(cat.nombre)}
               />
             ))}
           </div>
         </Seccion>
 
         {/* Subcategoría */}
-        {form.categoria && (
+        {categoria && subcategorias.length > 0 && (
           <Seccion titulo="Subcategoría" animar>
             <div className="grid grid-cols-2 gap-2">
               {subcategorias.map((sub) => (
                 <Chip
                   key={sub}
                   label={sub}
-                  tone={form.tipo}
-                  selected={form.subcategoria === sub}
-                  onClick={() => set('subcategoria', sub)}
+                  tone={tipo}
+                  selected={subcategoria === sub}
+                  onClick={() => elegirSub(sub)}
                 />
               ))}
             </div>
@@ -223,32 +366,44 @@ export default function CargarMovimiento({ editando, onGuardado, onCancelarEdici
         {/* Método */}
         <Seccion titulo={esGasto ? 'Método de pago' : 'Dónde entró'}>
           <div className="grid grid-cols-2 gap-2">
-            {metodos.map((m) => (
+            {metodosOrdenados.map((m) => (
               <Chip
-                key={m}
-                label={m}
-                icono={getIcono(m)}
-                tone={form.tipo}
-                selected={form.metodo === m}
-                onClick={() => set('metodo', m)}
+                key={m.id}
+                label={m.nombre}
+                icono={m.emoji}
+                tone={tipo}
+                selected={metodo === m.nombre}
+                onClick={() => elegirMetodo(m.nombre)}
               />
             ))}
           </div>
         </Seccion>
 
-        {/* Descripción (opcional) */}
+        {/* Nota opcional */}
         {mostrarNota ? (
           <div className="animate-fade-up">
             <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-400">
-              <StickyNote size={15} /> Nota (opcional)
+              <StickyNote size={15} /> Nota
             </label>
-            <input
-              type="text"
-              value={form.descripcion}
-              onChange={(e) => set('descripcion', e.target.value)}
-              placeholder="Una nota corta…"
-              className="w-full rounded-2xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-base text-slate-100 outline-none focus:border-indigo-500 placeholder:text-slate-600"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                placeholder="Una nota corta…"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-base text-slate-100 outline-none placeholder:text-slate-600 focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setDescripcion('')
+                  setMostrarNota(false)
+                }}
+                className="rounded-2xl bg-slate-800 px-3 text-slate-400 active:scale-95"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
         ) : (
           <button
@@ -260,38 +415,88 @@ export default function CargarMovimiento({ editando, onGuardado, onCancelarEdici
           </button>
         )}
 
-        <div className="h-4" />
+        <div className="h-2" />
       </div>
 
-      {/* Barra de guardar (siempre a mano) */}
-      <div className="safe-bottom sticky bottom-0 z-10 border-t border-white/5 bg-slate-950/80 px-4 pt-3 backdrop-blur-md">
+      {/* Teclado + guardar, siempre a mano abajo */}
+      <div className="safe-bottom sticky bottom-0 z-10 space-y-2 border-t border-white/5 bg-slate-950/85 px-3 pt-2 backdrop-blur-md">
+        <Numpad
+          tone={tipo}
+          onDigito={(d) => setCalc((c) => C.digito(c, d))}
+          onComa={() => setCalc((c) => C.coma(c))}
+          onOperador={(op) => setCalc((c) => C.operador(c, op))}
+          onRetroceso={() => setCalc((c) => C.retroceso(c))}
+          onLimpiar={() => setCalc(C.limpiar())}
+        />
+
         <div className="flex gap-2">
           {esEdicion && (
             <button
               type="button"
               onClick={onCancelarEdicion}
-              className="min-h-14 flex-1 rounded-2xl bg-slate-800 text-base font-semibold text-slate-200 active:scale-95"
+              className="min-h-13 flex-1 rounded-2xl bg-slate-800 text-base font-semibold text-slate-200 active:scale-95"
             >
               Cancelar
             </button>
           )}
           <button
-            type="submit"
-            disabled={!completo}
-            className={`flex min-h-14 items-center justify-center gap-2 rounded-2xl text-lg font-bold transition-all ${
-              esEdicion ? 'flex-1' : 'w-full'
+            type="button"
+            onClick={guardar}
+            disabled={!completo && !pendiente}
+            className={`flex min-h-13 items-center justify-center gap-2 rounded-2xl text-lg font-bold transition-all ${
+              esEdicion ? 'flex-[2]' : 'w-full'
             } ${
-              completo
-                ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/30 active:scale-[0.98]'
-                : 'cursor-not-allowed bg-slate-800 text-slate-600'
+              pendiente
+                ? 'bg-slate-700 text-slate-100 active:scale-[0.98]'
+                : completo
+                  ? esGasto
+                    ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-lg shadow-rose-500/25 active:scale-[0.98]'
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25 active:scale-[0.98]'
+                  : 'cursor-not-allowed bg-slate-800/80 text-slate-600'
             }`}
           >
-            <Check size={20} strokeWidth={3} />
-            {esEdicion ? 'Actualizar' : 'Guardar'}
+            {pendiente ? (
+              <>
+                <Equal size={20} strokeWidth={3} /> Calcular
+              </>
+            ) : (
+              <>
+                <Check size={20} strokeWidth={3} /> {esEdicion ? 'Actualizar' : 'Guardar'}
+              </>
+            )}
           </button>
         </div>
       </div>
-    </form>
+    </div>
+  )
+}
+
+function BotonTipo({ activo, onClick, Icon, clase, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-11 items-center justify-center gap-2 rounded-xl text-base font-semibold transition-all active:scale-95 ${
+        activo ? `${clase} text-white shadow-lg` : 'text-slate-400'
+      }`}
+    >
+      <Icon size={18} strokeWidth={2.5} />
+      {children}
+    </button>
+  )
+}
+
+function ChipFecha({ activo, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors ${
+        activo ? 'bg-indigo-500/20 text-indigo-200' : 'text-slate-400 active:bg-slate-800'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -302,4 +507,12 @@ function Seccion({ titulo, children, animar }) {
       {children}
     </div>
   )
+}
+
+function desplazarDias(iso, dias) {
+  const [a, m, d] = iso.split('-').map(Number)
+  const fecha = new Date(a, m - 1, d + dias)
+  return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(
+    fecha.getDate(),
+  ).padStart(2, '0')}`
 }

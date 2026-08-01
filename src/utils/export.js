@@ -1,4 +1,3 @@
-import writeXlsxFile from 'write-excel-file/browser'
 import { isoADate, hoyISO } from './format'
 
 // Columnas en el ORDEN del modelo de datos (el orden que usás para exportar).
@@ -16,6 +15,10 @@ const COLUMNS = [
 // Fechas como fecha real (dd/mm/yyyy) y montos como número, así Sheets
 // los reconoce y podés hacer cuentas directamente.
 export async function exportarXlsx(movimientos) {
+  // La librería de xlsx pesa ~60 KB y solo hace falta al exportar: se carga
+  // recién en ese momento para no demorar el arranque de la app.
+  const { default: writeXlsxFile } = await import('write-excel-file/browser')
+
   // En el archivo conviene el orden cronológico ascendente.
   const ordenados = [...movimientos].sort(
     (a, b) => a.fecha.localeCompare(b.fecha) || (a.createdAt ?? 0) - (b.createdAt ?? 0),
