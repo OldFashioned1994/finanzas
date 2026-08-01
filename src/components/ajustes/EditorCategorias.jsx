@@ -98,7 +98,11 @@ export default function EditorCategorias({ onToast }) {
                 valor={cat.nombre}
                 onGuardar={async (v) => {
                   const n = await renombrarCategoria(cat.id, v)
-                  if (n) onToast?.({ msg: `Actualizados ${n} movimientos`, tone: 'ok' })
+                  if (n === -1) {
+                    onToast?.({ msg: 'Ya existe una categoría con ese nombre', tone: 'error' })
+                  } else if (n) {
+                    onToast?.({ msg: `Actualizados ${n} movimientos`, tone: 'ok' })
+                  }
                 }}
                 className="min-w-0 flex-1"
               />

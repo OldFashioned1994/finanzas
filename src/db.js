@@ -202,12 +202,22 @@ export async function agregarCategoria({ tipo, nombre, emoji, subcategorias = []
   })
 }
 
-// Renombrar arrastra los movimientos ya cargados y el presupuesto, así el
-// historial no se parte en dos nombres distintos.
+// Renombrar arrastra los movimientos ya cargados, el presupuesto y los fijos,
+// así el historial no se parte en dos nombres distintos.
+// Devuelve la cantidad de movimientos actualizados, o -1 si el nombre ya lo usa
+// otra categoría del mismo tipo (fusionar dos categorías en silencio sería peor
+// que no hacer nada).
 export async function renombrarCategoria(id, nuevoNombre) {
   const nombre = nuevoNombre.trim()
   const cat = await db.categorias.get(id)
   if (!cat || !nombre || nombre === cat.nombre) return 0
+
+  const chocada = await db.categorias
+    .where('tipo')
+    .equals(cat.tipo)
+    .filter((c) => c.id !== id && c.nombre.toLowerCase() === nombre.toLowerCase())
+    .first()
+  if (chocada) return -1
 
   return db.transaction('rw', db.categorias, db.movimientos, db.presupuestos, db.fijos, async () => {
     await db.categorias.update(id, { nombre })
@@ -216,8 +226,16 @@ export async function renombrarCategoria(id, nuevoNombre) {
       .equals(cat.nombre)
       .filter((m) => m.tipo === cat.tipo)
       .modify({ categoria: nombre })
+
     const pre = await db.presupuestos.where('categoria').equals(cat.nombre).first()
-    if (pre) await db.presupuestos.update(pre.id, { categoria: nombre })
+    if (pre) {
+      // El índice de presupuestos es único por categoría: si ya hay uno con el
+      // nombre nuevo, se conserva ese y se descarta el viejo.
+      const destino = await db.presupuestos.where('categoria').equals(nombre).first()
+      if (destino) await db.presupuestos.delete(pre.id)
+      else await db.presupuestos.update(pre.id, { categoria: nombre })
+    }
+
     await db.fijos.filter((f) => f.categoria === cat.nombre && f.tipo === cat.tipo).modify({
       categoria: nombre,
     })

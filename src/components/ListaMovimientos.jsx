@@ -21,7 +21,6 @@ import {
   nombreMes,
   etiquetaDia,
 } from '../utils/format'
-import { sumarMeses } from '../utils/calc'
 
 export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, onToast }) {
   const { movimientos, cargando } = useDatos()
