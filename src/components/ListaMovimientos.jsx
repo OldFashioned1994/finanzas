@@ -10,6 +10,7 @@ import {
   X,
   Copy,
   SlidersHorizontal,
+  ArrowLeftRight,
 } from 'lucide-react'
 import { db, borrarMovimiento } from '../db'
 import { useDatos, useIconos } from '../state/datos'
@@ -25,6 +26,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
   const [categoria, setCategoria] = useState(filtroInicial?.categoria ?? 'todas')
   const [grupo, setGrupo] = useState(filtroInicial?.grupo ?? 'todos')
   const [monedaFiltro, setMonedaFiltro] = useState('todas')
+  const [etiqueta, setEtiqueta] = useState(filtroInicial?.etiqueta ?? 'todas')
   const [busqueda, setBusqueda] = useState('')
   // Los totales se leen en la misma moneda que el panel.
   const monedaVista = ajustes.monedaPanel === USD ? USD : ARS
@@ -38,6 +40,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     setTipo(filtroInicial.tipo ?? 'todos')
     setCategoria(filtroInicial.categoria ?? 'todas')
     setGrupo(filtroInicial.grupo ?? 'todos')
+    setEtiqueta(filtroInicial.etiqueta ?? 'todas')
     setBusqueda('')
     setAbierto(null)
   }, [filtroInicial])
@@ -59,6 +62,12 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     [movimientos, mes],
   )
 
+  const etiquetasDisponibles = useMemo(() => {
+    const set = new Set()
+    for (const m of movimientos) for (const t of m.tags ?? []) set.add(t)
+    return [...set].sort()
+  }, [movimientos])
+
   const categoriasDisponibles = useMemo(() => {
     const base = tipo === 'todos' ? delMes : delMes.filter((m) => m.tipo === tipo)
     return [...new Set(base.map((m) => m.categoria))].sort()
@@ -71,6 +80,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
       .filter((m) => categoria === 'todas' || m.categoria === categoria)
       .filter((m) => !categoriasDelGrupo || categoriasDelGrupo.has(m.categoria))
       .filter((m) => monedaFiltro === 'todas' || monedaDe(m) === monedaFiltro)
+      .filter((m) => etiqueta === 'todas' || (m.tags ?? []).includes(etiqueta))
       .filter((m) => {
         if (!q) return true
         return (
@@ -78,13 +88,14 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
           m.categoria?.toLowerCase().includes(q) ||
           m.metodo?.toLowerCase().includes(q) ||
           m.descripcion?.toLowerCase().includes(q) ||
+          (m.tags ?? []).some((t) => t.includes(q)) ||
           String(m.monto).includes(q)
         )
       })
       .sort(
         (a, b) => b.fecha.localeCompare(a.fecha) || (b.createdAt ?? 0) - (a.createdAt ?? 0),
       )
-  }, [delMes, tipo, categoria, categoriasDelGrupo, monedaFiltro, busqueda])
+  }, [delMes, tipo, categoria, categoriasDelGrupo, monedaFiltro, etiqueta, busqueda])
 
   // Los subtotales y totales suman monedas distintas, así que se calculan sobre
   // los montos convertidos; cada movimiento se sigue mostrando en la suya.
@@ -106,8 +117,9 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
       }
       actual.movimientos.push(m)
       const monto = convertido.get(m.id) ?? 0
+      // Las transferencias no suman a ningún lado: solo cambian de bolsillo.
       if (m.tipo === 'gasto') actual.gastos += monto
-      else actual.ingresos += monto
+      else if (m.tipo === 'ingreso') actual.ingresos += monto
     }
     return grupos
   }, [lista, convertido])
@@ -118,7 +130,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     for (const m of lista) {
       const monto = convertido.get(m.id) ?? 0
       if (m.tipo === 'gasto') gastos += monto
-      else ingresos += monto
+      else if (m.tipo === 'ingreso') ingresos += monto
     }
     return { gastos, ingresos, balance: ingresos - gastos }
   }, [lista, convertido])
@@ -128,6 +140,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     categoria !== 'todas' ||
     grupo !== 'todos' ||
     monedaFiltro !== 'todas' ||
+    etiqueta !== 'todas' ||
     busqueda.trim() !== ''
 
   const limpiarFiltros = () => {
@@ -135,6 +148,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     setCategoria('todas')
     setGrupo('todos')
     setMonedaFiltro('todas')
+    setEtiqueta('todas')
     setBusqueda('')
   }
 
@@ -198,6 +212,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
             <option value="todos">Gastos e ingresos</option>
             <option value="gasto">Solo gastos</option>
             <option value="ingreso">Solo ingresos</option>
+            <option value="transferencia">Solo transferencias</option>
           </select>
           <select
             value={grupo}
@@ -242,6 +257,21 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
             <option value={ARS}>Solo pesos</option>
             <option value={USD}>Solo dólares</option>
           </select>
+
+          {etiquetasDisponibles.length > 0 && (
+            <select
+              value={etiqueta}
+              onChange={(e) => setEtiqueta(e.target.value)}
+              className={selectCls}
+            >
+              <option value="todas">Todas las etiquetas</option>
+              {etiquetasDisponibles.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          )}
           {hayFiltro && (
             <button
               onClick={limpiarFiltros}
@@ -289,6 +319,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
               <ul className="overflow-hidden rounded-2xl border border-white/5 bg-slate-900/45">
                 {dia.movimientos.map((m, i) => {
                   const esGasto = m.tipo === 'gasto'
+                  const esTransferencia = m.tipo === 'transferencia'
                   const activo = abierto === m.id
                   const suMoneda = monedaDe(m)
                   // Cada movimiento se muestra en la moneda en que se cargó; si
@@ -303,27 +334,52 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
                       >
                         <span
                           className={`flex size-10 shrink-0 items-center justify-center rounded-2xl text-lg ${
-                            esGasto ? 'bg-rose-500/10' : 'bg-emerald-500/10'
+                            esTransferencia
+                              ? 'bg-slate-700/50'
+                              : esGasto
+                                ? 'bg-rose-500/10'
+                                : 'bg-emerald-500/10'
                           }`}
                         >
-                          {icono(m.categoria)}
+                          {esTransferencia ? <ArrowLeftRight size={17} className="text-slate-300" /> : icono(m.categoria)}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-semibold text-slate-100">
                             {m.subcategoria}
+                            {m.cuota && (
+                              <span className="ml-1.5 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300">
+                                {m.cuota.n}/{m.cuota.de}
+                              </span>
+                            )}
                           </span>
                           <span className="mt-0.5 block truncate text-sm text-slate-500">
                             {m.categoria} · {m.metodo}
                             {m.descripcion && <span className="italic"> · {m.descripcion}</span>}
                           </span>
+                          {m.tags?.length > 0 && (
+                            <span className="mt-1 flex flex-wrap gap-1">
+                              {m.tags.map((t) => (
+                                <span
+                                  key={t}
+                                  className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[11px] font-medium text-indigo-200"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                            </span>
+                          )}
                         </span>
                         <span className="shrink-0 text-right">
                           <span
                             className={`block text-base font-bold tabular-nums ${
-                              esGasto ? 'text-rose-400' : 'text-emerald-400'
+                              esTransferencia
+                                ? 'text-slate-400'
+                                : esGasto
+                                  ? 'text-rose-400'
+                                  : 'text-emerald-400'
                             }`}
                           >
-                            {esGasto ? '−' : '+'}
+                            {esTransferencia ? '' : esGasto ? '−' : '+'}
                             {formatRedondoEn(m.monto, suMoneda)}
                           </span>
                           {equivalente != null && (

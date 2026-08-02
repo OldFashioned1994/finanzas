@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useDatos, useIconos } from '../state/datos'
 import { confirmarFijo, omitirFijo } from '../db'
-import { CircleDollarSign } from 'lucide-react'
+import { CircleDollarSign, CreditCard } from 'lucide-react'
 import {
   PERIODOS,
   rangoDe,
@@ -47,6 +47,7 @@ import {
   normalizarMontos,
 } from '../utils/moneda'
 import { setAjuste } from '../db'
+import { resumenFondos, deudaEnCuotas, proyeccionCierre } from '../utils/fondos'
 import { SERIES, GRIS, ESTADO, FLUJO, aclarar } from '../utils/paleta'
 import { NATURALEZAS } from '../config'
 import Tarjeta from './Tarjeta'
@@ -64,13 +65,16 @@ const COLOR_NATURALEZA = {
   otros: GRIS,
 }
 
-export default function Dashboard({ onVerMovimientos, onToast }) {
+export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   const {
     movimientos: crudos,
     categorias,
     grupos,
     presupuestos,
     fijos,
+    fondos,
+    opsFondo,
+    compras,
     cargando,
     conversor,
     ajustes,
@@ -192,6 +196,27 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
     if (!tc) return []
     return presupuestos.map((p) => ({ ...p, monto: p.monto / tc }))
   }, [presupuestos, monedaVista, conversor, mes])
+
+  // Lo que tenés apartado (inversiones y metas) y lo que debés en cuotas: el
+  // panel deja de responder solo "en qué se me fue" y pasa a decir "cómo estás".
+  const patrimonio = useMemo(
+    () => resumenFondos(fondos.filter((f) => f.activo), opsFondo, conversor, monedaVista),
+    [fondos, opsFondo, conversor, monedaVista],
+  )
+  const deuda = useMemo(
+    () => deudaEnCuotas(movimientos, compras),
+    [movimientos, compras],
+  )
+  const proyeccion = useMemo(
+    () =>
+      proyeccionCierre({
+        movsDelMes: delPeriodo,
+        fijos,
+        mes,
+        diasDelMes: ritmo.total_dias,
+      }),
+    [delPeriodo, fijos, mes, ritmo.total_dias],
+  )
 
   const pendientes = useMemo(() => fijosPendientes(fijos), [fijos])
   const esMesActual = mes === mesActualISO()
@@ -339,6 +364,79 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
           nota={tot.tasaAhorro == null ? 'sin ingresos cargados' : 'de lo que entró'}
         />
       </div>
+
+      {/* Patrimonio y deuda: la foto de cómo estás, más allá del mes */}
+      {(patrimonio.valor > 0 || deuda.total > 0) && (
+        <div className="grid grid-cols-2 gap-2">
+          {patrimonio.valor > 0 && (
+            <button
+              onClick={() => onIrAFondos?.()}
+              className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-left active:scale-[0.99]"
+            >
+              <p className="flex items-center gap-1.5 text-xs text-emerald-200/80">
+                <PiggyBank size={13} /> Apartado
+              </p>
+              <p className="mt-1 truncate text-lg font-bold leading-tight tabular-nums text-emerald-300">
+                {fRedondo(patrimonio.valor)}
+              </p>
+              {patrimonio.rendimientoPct != null && (
+                <p className="mt-0.5 truncate text-xs font-medium text-emerald-400/80">
+                  {patrimonio.rendimiento >= 0 ? '+' : ''}
+                  {formatPct(patrimonio.rendimientoPct, 1)} de rendimiento
+                </p>
+              )}
+            </button>
+          )}
+          {deuda.total > 0 && (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3">
+              <p className="flex items-center gap-1.5 text-xs text-amber-200/80">
+                <CreditCard size={13} /> Debés en cuotas
+              </p>
+              <p className="mt-1 truncate text-lg font-bold leading-tight tabular-nums text-amber-300">
+                {fRedondo(deuda.total)}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-amber-400/70">
+                {deuda.detalle.length} compra{deuda.detalle.length === 1 ? '' : 's'} en curso
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cierre estimado del mes */}
+      {proyeccion && periodo === 'mes' && proyeccion.confiable && (
+        <Tarjeta titulo="Cómo va a cerrar el mes">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-xs text-slate-400">Gastos</p>
+              <p className="mt-0.5 truncate text-sm font-bold tabular-nums text-rose-400">
+                {fCorto(proyeccion.gastos)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Ingresos</p>
+              <p className="mt-0.5 truncate text-sm font-bold tabular-nums text-emerald-400">
+                {fCorto(proyeccion.ingresos)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Te queda</p>
+              <p
+                className={`mt-0.5 truncate text-sm font-bold tabular-nums ${
+                  proyeccion.balance >= 0 ? 'text-indigo-300' : 'text-rose-400'
+                }`}
+              >
+                {fCorto(proyeccion.balance)}
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 border-t border-white/5 pt-2 text-xs leading-relaxed text-slate-500">
+            Ya está comprometido {fCorto(proyeccion.comprometido)} en fijos y cuotas por vencer.
+            El resto sale del ritmo de estos {ritmo.transcurridos} días, para los{' '}
+            {proyeccion.diasRestantes} que faltan.
+          </p>
+        </Tarjeta>
+      )}
 
       {!hayDatos ? (
         <Tarjeta>

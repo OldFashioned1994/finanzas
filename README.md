@@ -88,6 +88,41 @@ Además, cada categoría de gasto tiene una **naturaleza** (esencial, disfrute u
 otros) que alimenta la tarjeta *"Cuánto es elección tuya"*. Todo esto se edita
 desde Ajustes → Grupos y Ajustes → Categorías.
 
+### Fondos
+
+Los bolsillos donde apartás plata. Dos clases:
+
+**Inversiones** — plazo fijo, fondo común, dólares guardados, cripto, acciones.
+Cuatro operaciones: *aportar*, *retirar*, *valuar* (anotar cuánto vale hoy según
+el banco o el broker) y *acreditar interés*. El rendimiento se calcula solo:
+`valor actual − aportado`.
+
+**Metas** — juntar para algo concreto (un viaje, el seguro anual) con objetivo,
+fecha y barra de progreso. Si ponés fecha, te dice cuánto apartar por mes.
+
+Dos reglas que hacen que los números no mientan:
+
+- **Poner plata en un fondo NO es un gasto.** Se registra como *transferencia*:
+  aparece en la lista de movimientos pero queda fuera de todos los totales.
+  Es plata que sigue siendo tuya, solo cambió de bolsillo.
+- **Un rendimiento NO es un ingreso hasta que lo cobrás.** Al acreditar un
+  interés elegís: si queda adentro reinvirtiéndose, solo sube el valor del
+  fondo; si lo cobraste, ahí sí entra al flujo del mes como ingreso real.
+  Contar como ingreso una ganancia que nunca tocaste infla la tasa de ahorro.
+
+### Compras en cuotas
+
+Al cargar un gasto elegís en cuántas cuotas lo pagás y la app genera las N de una
+vez, una por mes: ya las debés. Cada mes futuro muestra la suya, marcada `3/12`.
+El panel te dice cuánto queda por pagar en total, y en Ajustes → Compras en
+cuotas ves cómo cae mes a mes y podés cancelar las que faltan.
+
+### Etiquetas
+
+Además de la categoría, cualquier movimiento puede llevar etiquetas libres
+("brasil 2026", "mudanza"). Sirven para lo que cruza rubros: un viaje toca
+transporte, comida y ocio, y ninguna categoría sola te dice cuánto salió.
+
 ### Movimientos
 
 Lista agrupada por día con subtotal diario, buscador y filtros por mes / tipo /
@@ -148,12 +183,17 @@ estando en la misma Wi-Fi.
 
 ## Notas técnicas
 
-- **Datos**: Dexie sobre IndexedDB, esquema v4 (`movimientos`, `categorias`,
-  `grupos`, `metodos`, `presupuestos`, `fijos`, `cotizaciones`, `ajustes`). Las
-  migraciones nunca tocan un monto: la de v2 rescata categorías o métodos que
-  existan en el historial y no estén en la semilla, la de v3 marca como pesos lo
-  ya cargado, y la de v4 asigna cada categoría a su grupo (lo que no encaje va al
-  grupo de varios, nunca se pierde).
+- **Datos**: Dexie sobre IndexedDB, esquema v5 (`movimientos`, `categorias`,
+  `grupos`, `metodos`, `presupuestos`, `fijos`, `cotizaciones`, `fondos`,
+  `opsFondo`, `compras`, `ajustes`). Las migraciones nunca tocan un monto: v2
+  rescata categorías o métodos que existan en el historial y no estén en la
+  semilla, v3 marca como pesos lo ya cargado, v4 asigna cada categoría a su grupo
+  (lo que no encaje va al grupo de varios, nunca se pierde) y v5 suma fondos y
+  cuotas. **Cuidado al tocar un `upgrade`**: cada uno corre con el esquema de SU
+  versión, así que no puede usar una tabla que se crea más adelante.
+- **Tipos de movimiento**: `gasto`, `ingreso` y `transferencia`. Las
+  transferencias quedan fuera de todos los totales — si sumás algo nuevo al
+  panel, acordate de excluirlas.
 - [`src/config.js`](src/config.js) es **solo la semilla** de la primera ejecución.
   El día a día se edita desde Ajustes.
 - **Gráficos**: SVG propio, sin librería (Recharts pesaba más que toda la app). La

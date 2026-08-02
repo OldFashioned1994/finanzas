@@ -9,7 +9,15 @@ import { CONFIG, ICONOS, GRUPOS, CLASIFICACION } from './config'
 //  movimientos   el registro de plata que entra y sale
 //    id           number   autoincremental, interno (NO se exporta)
 //    fecha        string   'YYYY-MM-DD'
-//    tipo         string   'gasto' | 'ingreso'
+//    tipo         string   'gasto' | 'ingreso' | 'transferencia'
+//                          Una TRANSFERENCIA mueve plata entre bolsillos tuyos
+//                          (a un plazo fijo, a una meta de ahorro). No es gasto
+//                          ni ingreso y queda FUERA de todos los totales: si se
+//                          contara, poner plata en el ahorro figuraría como
+//                          haberla gastado. Es el error de doble conteo clásico.
+//    tags         string[] etiquetas libres que cruzan categorías
+//    compraId     number   opcional, si es la cuota de una compra financiada
+//    cuota        {n, de}  opcional, qué número de cuota es
 //    monto        number   siempre positivo, EN LA MONEDA DEL MOVIMIENTO
 //    moneda       string   'ARS' | 'USD'  (los viejos, sin campo, son ARS)
 //    tc           number   opcional: pesos por dólar de ESE movimiento.
@@ -49,6 +57,25 @@ import { CONFIG, ICONOS, GRUPOS, CLASIFICACION } from './config'
 //    id, tipo, monto, categoria, subcategoria, metodo, descripcion,
 //    diaMes (1-31), activo, ultimoMes ('YYYY-MM' en que ya se confirmó)
 //
+//  fondos        bolsillos donde apartás plata. Dos clases:
+//    clase        'inversion' (rinde: plazo fijo, FCI, dólares, cripto)
+//                 'meta'      (junta para algo: viaje, seguro anual)
+//    id, nombre, emoji, tipo, moneda, objetivo, fechaObjetivo, activo, orden
+//
+//  opsFondo      lo que le pasa a un fondo
+//    id, fondoId, fecha, monto, nota
+//    tipo         'aporte'    entra plata (sale del flujo, es transferencia)
+//                 'retiro'    sale plata
+//                 'valuacion' cuánto vale hoy según el banco o el broker
+//                 'interes'   rendimiento acreditado
+//    cobrado      solo en 'interes': si lo cobraste (entra al flujo como
+//                 ingreso real) o quedó adentro reinvirtiéndose
+//    movimientoId el movimiento de transferencia asociado, si lo hay
+//
+//  compras       compras en cuotas. Al crearlas se generan las N cuotas como
+//    id, descripcion, montoTotal, cantidadCuotas, primerMes, diaMes,
+//    categoria, subcategoria, metodo, moneda, tc, activa
+//
 //  ajustes       clave/valor suelto (preferencias)
 //    clave, valor
 // ============================================================================
@@ -73,7 +100,8 @@ db.version(2)
     // Base que ya existía con movimientos: sembramos la taxonomía desde
     // config.js y además rescatamos cualquier categoría/método que aparezca
     // en movimientos viejos y no esté en la config (para no perder nada).
-    await sembrarTaxonomia(tx)
+    // Sin grupos: en esta versión del esquema esa tabla no existe todavía.
+    await sembrarTaxonomia(tx, { conGrupos: false })
     const movs = await tx.table('movimientos').toArray()
     await absorberDeMovimientos(tx, movs)
   })
@@ -119,6 +147,13 @@ db.version(4)
       })
   })
 
+db.version(5).stores({
+  movimientos: '++id, fecha, tipo, categoria, subcategoria, metodo, moneda, compraId, *tags, createdAt',
+  fondos: '++id, clase, orden',
+  opsFondo: '++id, fondoId, fecha',
+  compras: '++id, activa',
+})
+
 // Instalación nueva: no hay upgrade que correr, así que sembramos acá.
 db.on('populate', (tx) => sembrarTaxonomia(tx))
 
@@ -136,8 +171,12 @@ async function sembrarGrupos(tx) {
   await tx.table('grupos').bulkAdd(filas)
 }
 
-async function sembrarTaxonomia(tx) {
-  await sembrarGrupos(tx)
+// `conGrupos` existe porque esta misma función corre en dos momentos muy
+// distintos: en una instalación nueva (donde todas las tablas existen) y en el
+// upgrade a v2 de una base vieja, donde la tabla `grupos` todavía no fue creada
+// (se crea recién en v4). Pedirla ahí rompería toda la migración.
+async function sembrarTaxonomia(tx, { conGrupos = true } = {}) {
+  if (conGrupos) await sembrarGrupos(tx)
 
   const categorias = []
   const metodos = []
@@ -218,11 +257,9 @@ async function absorberDeMovimientos(tx, movs) {
 
   if (nuevasCats.size) {
     let orden = cats.length
-    const grupos = await tx.table('grupos').toArray()
-    const ultimoDe = (tipo) => {
-      const delTipo = grupos.filter((g) => g.tipo === tipo).sort((a, b) => a.orden - b.orden)
-      return delTipo[delTipo.length - 1]?.nombre ?? ''
-    }
+    // OJO: esta función corre en el upgrade a v2, cuando la tabla `grupos`
+    // todavía no existe. No se le puede asignar grupo acá: de eso se encarga el
+    // upgrade a v4, que recorre TODAS las categorías, incluidas estas.
     await tx.table('categorias').bulkAdd(
       [...nuevasCats.values()].map((c) => ({
         tipo: c.tipo,
@@ -231,8 +268,6 @@ async function absorberDeMovimientos(tx, movs) {
         orden: orden++,
         archivada: false,
         subcategorias: [...c.subs],
-        grupo: CLASIFICACION[c.nombre]?.grupo ?? ultimoDe(c.tipo),
-        naturaleza: c.tipo === 'gasto' ? (CLASIFICACION[c.nombre]?.naturaleza ?? 'otros') : null,
       })),
     )
   }
@@ -583,6 +618,211 @@ function diasDelMes(mesISO) {
 export async function setCotizacion(mes, valor) {
   if (!valor || valor <= 0) return db.cotizaciones.delete(mes)
   return db.cotizaciones.put({ mes, valor })
+}
+
+// ---------------------------------------------------------------------------
+//  Fondos: inversiones y metas de ahorro
+// ---------------------------------------------------------------------------
+
+export async function agregarFondo(fondo) {
+  const orden = await db.fondos.count()
+  return db.fondos.add({ activo: 1, orden, ...fondo })
+}
+
+export async function actualizarFondo(id, cambios) {
+  return db.fondos.update(id, cambios)
+}
+
+// Borra el fondo y sus operaciones. Los movimientos de transferencia que se
+// hayan generado se borran también: si no, quedarían apuntando a la nada.
+export async function borrarFondo(id) {
+  return db.transaction('rw', db.fondos, db.opsFondo, db.movimientos, async () => {
+    const ops = await db.opsFondo.where('fondoId').equals(id).toArray()
+    const idsMov = ops.map((o) => o.movimientoId).filter(Boolean)
+    if (idsMov.length) await db.movimientos.bulkDelete(idsMov)
+    await db.opsFondo.where('fondoId').equals(id).delete()
+    await db.fondos.delete(id)
+  })
+}
+
+// Poner plata en un fondo. Genera la operación y, si se indica de dónde sale,
+// también el movimiento de TRANSFERENCIA: así queda registrado que la plata se
+// movió, sin que figure como gasto.
+export async function aportarAFondo(fondoId, { fecha, monto, metodo, moneda, tc, nota, retiro }) {
+  const fondo = await db.fondos.get(fondoId)
+  if (!fondo) return
+  return db.transaction('rw', db.opsFondo, db.movimientos, async () => {
+    let movimientoId = null
+    if (metodo) {
+      movimientoId = await db.movimientos.add({
+        fecha,
+        tipo: 'transferencia',
+        monto,
+        moneda: moneda ?? fondo.moneda ?? 'ARS',
+        tc: tc ?? null,
+        categoria: fondo.nombre,
+        subcategoria: retiro ? 'RETIRO' : 'APORTE',
+        metodo,
+        descripcion: nota || '',
+        createdAt: Date.now(),
+      })
+    }
+    return db.opsFondo.add({
+      fondoId,
+      fecha,
+      tipo: retiro ? 'retiro' : 'aporte',
+      monto,
+      movimientoId,
+      nota: nota || '',
+    })
+  })
+}
+
+// Anotar cuánto vale hoy el fondo (lo que dice el banco o el broker).
+export async function valuarFondo(fondoId, { fecha, monto, nota }) {
+  return db.opsFondo.add({ fondoId, fecha, tipo: 'valuacion', monto, nota: nota || '' })
+}
+
+// Interés o rendimiento acreditado.
+//   cobrado = false -> queda adentro, solo sube el valor del fondo
+//   cobrado = true  -> lo cobraste: entra al flujo del mes como ingreso real
+// La diferencia no es un detalle: contar como ingreso una ganancia que nunca
+// tocaste infla la tasa de ahorro y el número deja de servir para nada.
+export async function acreditarInteres(fondoId, { fecha, monto, cobrado, metodo, nota }) {
+  const fondo = await db.fondos.get(fondoId)
+  if (!fondo) return
+  return db.transaction('rw', db.opsFondo, db.movimientos, async () => {
+    let movimientoId = null
+    if (cobrado && metodo) {
+      movimientoId = await db.movimientos.add({
+        fecha,
+        tipo: 'ingreso',
+        monto,
+        moneda: fondo.moneda ?? 'ARS',
+        tc: null,
+        categoria: 'Inversiones',
+        subcategoria: 'INTERESES',
+        metodo,
+        descripcion: nota || fondo.nombre,
+        createdAt: Date.now(),
+      })
+    }
+    return db.opsFondo.add({
+      fondoId,
+      fecha,
+      tipo: 'interes',
+      monto,
+      cobrado: Boolean(cobrado),
+      movimientoId,
+      nota: nota || '',
+    })
+  })
+}
+
+export async function borrarOpFondo(id) {
+  return db.transaction('rw', db.opsFondo, db.movimientos, async () => {
+    const op = await db.opsFondo.get(id)
+    if (op?.movimientoId) await db.movimientos.delete(op.movimientoId)
+    await db.opsFondo.delete(id)
+  })
+}
+
+// ---------------------------------------------------------------------------
+//  Compras en cuotas
+// ---------------------------------------------------------------------------
+
+// Al crear la compra se generan las N cuotas de una vez, una por mes. Es lo que
+// realmente pasa: ya las debés. Así cada mes futuro muestra lo que le toca y se
+// puede saber cuánto queda por pagar sin hacer cuentas.
+export async function agregarCompraEnCuotas(compra) {
+  const {
+    descripcion,
+    montoTotal,
+    cantidadCuotas,
+    primerMes,
+    diaMes = 1,
+    categoria,
+    subcategoria,
+    metodo,
+    moneda = 'ARS',
+    tc = null,
+    tags = [],
+  } = compra
+
+  return db.transaction('rw', db.compras, db.movimientos, async () => {
+    const compraId = await db.compras.add({
+      descripcion,
+      montoTotal,
+      cantidadCuotas,
+      primerMes,
+      diaMes,
+      categoria,
+      subcategoria,
+      metodo,
+      moneda,
+      tc,
+      activa: 1,
+      createdAt: Date.now(),
+    })
+
+    // El redondeo va a la última cuota, para que la suma cierre exacta.
+    const base = Math.round((montoTotal / cantidadCuotas) * 100) / 100
+    const filas = []
+    for (let i = 0; i < cantidadCuotas; i++) {
+      const mes = sumarMesISO(primerMes, i)
+      const dia = String(Math.min(diaMes, diasDelMes(mes))).padStart(2, '0')
+      const monto =
+        i === cantidadCuotas - 1
+          ? Math.round((montoTotal - base * (cantidadCuotas - 1)) * 100) / 100
+          : base
+      filas.push({
+        fecha: `${mes}-${dia}`,
+        tipo: 'gasto',
+        monto,
+        moneda,
+        tc,
+        categoria,
+        subcategoria,
+        metodo,
+        descripcion,
+        compraId,
+        cuota: { n: i + 1, de: cantidadCuotas },
+        tags,
+        createdAt: Date.now(),
+      })
+    }
+    await db.movimientos.bulkAdd(filas)
+    return compraId
+  })
+}
+
+// Cancelar una compra borra SOLO las cuotas que todavía no vencieron: lo que ya
+// pagaste sigue siendo parte de tu historial.
+export async function cancelarCompra(compraId, desdeFecha) {
+  return db.transaction('rw', db.compras, db.movimientos, async () => {
+    const borradas = await db.movimientos
+      .where('compraId')
+      .equals(compraId)
+      .filter((m) => m.fecha > desdeFecha)
+      .delete()
+    const quedan = await db.movimientos.where('compraId').equals(compraId).count()
+    if (quedan === 0) await db.compras.delete(compraId)
+    else await db.compras.update(compraId, { activa: 0 })
+    return borradas
+  })
+}
+
+export async function borrarCompra(compraId) {
+  return db.transaction('rw', db.compras, db.movimientos, async () => {
+    await db.movimientos.where('compraId').equals(compraId).delete()
+    await db.compras.delete(compraId)
+  })
+}
+
+function sumarMesISO(mesISO, delta) {
+  const [a, m] = mesISO.split('-').map(Number)
+  const d = new Date(a, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
 // ---------------------------------------------------------------------------

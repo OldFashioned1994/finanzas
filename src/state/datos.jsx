@@ -20,6 +20,9 @@ export function DatosProvider({ children }) {
   const fijos = useLiveQuery(() => db.fijos.toArray(), [], undefined)
   const ajustes = useLiveQuery(() => db.ajustes.toArray(), [], undefined)
   const cotizaciones = useLiveQuery(() => db.cotizaciones.toArray(), [], undefined)
+  const fondos = useLiveQuery(() => db.fondos.toArray(), [], undefined)
+  const opsFondo = useLiveQuery(() => db.opsFondo.toArray(), [], undefined)
+  const compras = useLiveQuery(() => db.compras.toArray(), [], undefined)
 
   const valor = useMemo(() => {
     const ordenar = (arr) => [...(arr ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
@@ -33,12 +36,27 @@ export function DatosProvider({ children }) {
       presupuestos: presupuestos ?? [],
       fijos: fijos ?? [],
       cotizaciones: cotizaciones ?? [],
+      fondos: ordenar(fondos),
+      opsFondo: opsFondo ?? [],
+      compras: compras ?? [],
       ajustes: prefs,
       // Un único conversor para toda la app: si cambia una cotización, todo lo
       // que se muestre en la otra moneda se recalcula solo.
       conversor: crearConversor(cotizaciones ?? [], Number(prefs.tcReferencia) || 0),
     }
-  }, [movimientos, categorias, grupos, metodos, presupuestos, fijos, ajustes, cotizaciones])
+  }, [
+    movimientos,
+    categorias,
+    grupos,
+    metodos,
+    presupuestos,
+    fijos,
+    ajustes,
+    cotizaciones,
+    fondos,
+    opsFondo,
+    compras,
+  ])
 
   return <DatosContext.Provider value={valor}>{children}</DatosContext.Provider>
 }

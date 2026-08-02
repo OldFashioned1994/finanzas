@@ -11,7 +11,13 @@ import {
   X,
   ArrowLeftRight,
 } from 'lucide-react'
-import { agregarMovimiento, actualizarMovimiento, borrarMovimiento } from '../db'
+import {
+  agregarMovimiento,
+  actualizarMovimiento,
+  borrarMovimiento,
+  agregarCompraEnCuotas,
+  borrarCompra,
+} from '../db'
 import { useDatos, useCategoriasDe, useMetodosDe, useIconos } from '../state/datos'
 import { hoyISO, formatFecha } from '../utils/format'
 import { combosFrecuentes, defaultsDeCategoria, rankingUso } from '../utils/calc'
@@ -19,6 +25,7 @@ import { ARS, USD, MONEDAS, formatRedondoEn } from '../utils/moneda'
 import { parseMonto, limpiarInputMonto } from '../utils/monto'
 import * as C from '../utils/calculadora'
 import Numpad from './Numpad'
+import EditorEtiquetas from './EditorEtiquetas'
 import Chip from './Chip'
 
 export default function CargarMovimiento({ editando, plantilla, onGuardado, onCancelarEdicion }) {
@@ -38,6 +45,9 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
   const [metodo, setMetodo] = useState('')
   const [descripcion, setDescripcion] = useState('')
   const [mostrarNota, setMostrarNota] = useState(false)
+  // 1 = un solo pago. Más de 1 genera una compra financiada con sus cuotas.
+  const [cuotas, setCuotas] = useState(1)
+  const [tags, setTags] = useState([])
   // Si el usuario eligió a mano, dejamos de pisarle la elección con sugerencias.
   const tocado = useRef({ sub: false, metodo: false })
   const fechaRef = useRef(null)
@@ -80,6 +90,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setMetodo(editando.metodo)
     setDescripcion(editando.descripcion || '')
     setMostrarNota(Boolean(editando.descripcion))
+    setTags(editando.tags ?? [])
     setMoneda(editando.moneda === USD ? USD : ARS)
     setTc(editando.tc ? String(editando.tc).replace('.', ',') : '')
     setMostrarTc(Boolean(editando.tc))
@@ -98,6 +109,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setMetodo(plantilla.metodo)
     setDescripcion(plantilla.descripcion || '')
     setMostrarNota(Boolean(plantilla.descripcion))
+    setTags(plantilla.tags ?? [])
     setMoneda(plantilla.moneda === USD ? USD : ARS)
     // La cotización NO se copia: el dólar de hace un mes no es el de hoy.
     setTc('')
@@ -201,6 +213,13 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
         : formatRedondoEn(monto / tcNum, USD)
       : null
 
+  // Etiquetas ya usadas, para no tener que re-tipearlas.
+  const etiquetasUsadas = useMemo(() => {
+    const set = new Set()
+    for (const m of movimientos) for (const t of m.tags ?? []) set.add(t)
+    return [...set].sort()
+  }, [movimientos])
+
   const resetear = (nuevoTipo = tipo) => {
     setCalc(C.limpiar())
     setCategoria('')
@@ -210,6 +229,8 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setMostrarNota(false)
     setFecha(hoyISO())
     setTipo(nuevoTipo)
+    setCuotas(1)
+    setTags([])
     // La moneda y la cotización se conservan: si estás cargando gastos en
     // dólares, lo más probable es que el próximo también lo sea.
     tocado.current = { sub: false, metodo: false }
@@ -234,6 +255,32 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
       subcategoria,
       metodo,
       descripcion: descripcion.trim(),
+      tags,
+    }
+
+    // Compra en cuotas: se generan las N de una vez, una por mes. Ya las debés,
+    // así que cada mes futuro tiene que mostrar la suya.
+    if (!esEdicion && cuotas > 1 && tipo === 'gasto') {
+      const compraId = await agregarCompraEnCuotas({
+        descripcion: datos.descripcion || subcategoria,
+        montoTotal: datos.monto,
+        cantidadCuotas: cuotas,
+        primerMes: fecha.slice(0, 7),
+        diaMes: Number(fecha.slice(8, 10)),
+        categoria,
+        subcategoria,
+        metodo,
+        moneda,
+        tc: datos.tc,
+        tags,
+      })
+      onGuardado?.({
+        msg: `${cuotas} cuotas de ${formatRedondoEn(datos.monto / cuotas, moneda)}`,
+        tone: 'ok',
+        undo: () => borrarCompra(compraId),
+      })
+      resetear()
+      return
     }
 
     if (esEdicion) {
@@ -511,6 +558,39 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
             ))}
           </div>
         </Seccion>
+
+        {/* Cuotas y etiquetas */}
+        {tipo === 'gasto' && !esEdicion && (
+          <Seccion titulo="Cómo lo pagás">
+            <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
+              {[1, 3, 6, 9, 12, 18, 24].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setCuotas(n)}
+                  className={`min-h-11 shrink-0 rounded-xl px-3.5 text-sm font-semibold transition-all active:scale-95 ${
+                    cuotas === n
+                      ? 'bg-indigo-500 text-white'
+                      : 'bg-slate-800/60 text-slate-300 ring-1 ring-white/5'
+                  }`}
+                >
+                  {n === 1 ? 'Un pago' : `${n} cuotas`}
+                </button>
+              ))}
+            </div>
+            {cuotas > 1 && montoValido && (
+              <p className="mt-1.5 text-xs text-indigo-200">
+                {cuotas} cuotas de{' '}
+                <strong className="font-semibold">
+                  {formatRedondoEn(monto / cuotas, moneda)}
+                </strong>{' '}
+                · empieza {formatFecha(fecha)}
+              </p>
+            )}
+          </Seccion>
+        )}
+
+        <EditorEtiquetas tags={tags} onChange={setTags} sugerencias={etiquetasUsadas} />
 
         {/* Nota opcional */}
         {mostrarNota ? (

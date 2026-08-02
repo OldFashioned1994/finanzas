@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   CircleDollarSign,
   Layers,
+  CreditCard as TarjetaCuotas,
 } from 'lucide-react'
 import { useDatos } from '../state/datos'
 import { setAjuste } from '../db'
@@ -25,10 +26,19 @@ import EditorPresupuestos from './ajustes/EditorPresupuestos'
 import EditorFijos from './ajustes/EditorFijos'
 import EditorDolar from './ajustes/EditorDolar'
 import EditorGrupos from './ajustes/EditorGrupos'
+import EditorCompras from './ajustes/EditorCompras'
 
 export default function Ajustes({ onToast }) {
-  const { movimientos, categorias, fijos, presupuestos, ajustes, cotizaciones, conversor } =
-    useDatos()
+  const {
+    movimientos,
+    categorias,
+    fijos,
+    presupuestos,
+    ajustes,
+    cotizaciones,
+    conversor,
+    compras,
+  } = useDatos()
   const [abierta, setAbierta] = useState(null)
 
   const toggle = (id) => setAbierta(abierta === id ? null : id)
@@ -70,6 +80,17 @@ export default function Ajustes({ onToast }) {
         onToggle={toggle}
       >
         <EditorDolar onToast={onToast} />
+      </Seccion>
+
+      <Seccion
+        id="compras"
+        titulo="Compras en cuotas"
+        detalle={`${compras.length} registrada${compras.length === 1 ? '' : 's'}`}
+        Icon={TarjetaCuotas}
+        abierta={abierta === 'compras'}
+        onToggle={toggle}
+      >
+        <EditorCompras onToast={onToast} />
       </Seccion>
 
       <Seccion

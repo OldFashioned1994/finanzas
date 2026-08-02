@@ -114,16 +114,20 @@ export function enRango(movs, { desde, hasta }) {
 export function resumen(movs) {
   let gastos = 0
   let ingresos = 0
+  let cantidad = 0
   for (const m of movs) {
+    // Las transferencias no suman ni restan: mueven plata que ya era tuya.
     if (m.tipo === 'gasto') gastos += m.monto
-    else ingresos += m.monto
+    else if (m.tipo === 'ingreso') ingresos += m.monto
+    else continue
+    cantidad++
   }
   const balance = ingresos - gastos
   return {
     gastos,
     ingresos,
     balance,
-    cantidad: movs.length,
+    cantidad,
     // Qué proporción de lo que entró te quedó. Sin ingresos cargados no aplica.
     tasaAhorro: ingresos > 0 ? balance / ingresos : null,
   }
@@ -332,7 +336,7 @@ export function serieMensual(movs, mes, n = 12) {
     const e = base.get(k)
     if (!e) continue
     if (m.tipo === 'gasto') e.gastos += m.monto
-    else e.ingresos += m.monto
+    else if (m.tipo === 'ingreso') e.ingresos += m.monto
   }
   return [...base.values()].map((e) => ({ ...e, balance: e.ingresos - e.gastos }))
 }
