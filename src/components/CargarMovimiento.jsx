@@ -10,6 +10,7 @@ import {
   CalendarDays,
   X,
   ArrowLeftRight,
+  Pencil,
 } from 'lucide-react'
 import {
   agregarMovimiento,
@@ -48,6 +49,10 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
   // 1 = un solo pago. Más de 1 genera una compra financiada con sus cuotas.
   const [cuotas, setCuotas] = useState(1)
   const [tags, setTags] = useState([])
+  // El teclado ocupa media pantalla, así que solo está cuando hace falta:
+  // abierto al empezar (lo primero es el monto) y se va solo en cuanto tocás
+  // una categoría, que es cuando ya terminaste de tipear.
+  const [numpadAbierto, setNumpadAbierto] = useState(true)
   // Si el usuario eligió a mano, dejamos de pisarle la elección con sugerencias.
   const tocado = useRef({ sub: false, metodo: false })
   const fechaRef = useRef(null)
@@ -91,6 +96,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setDescripcion(editando.descripcion || '')
     setMostrarNota(Boolean(editando.descripcion))
     setTags(editando.tags ?? [])
+    setNumpadAbierto(true)
     setMoneda(editando.moneda === USD ? USD : ARS)
     setTc(editando.tc ? String(editando.tc).replace('.', ',') : '')
     setMostrarTc(Boolean(editando.tc))
@@ -110,6 +116,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setDescripcion(plantilla.descripcion || '')
     setMostrarNota(Boolean(plantilla.descripcion))
     setTags(plantilla.tags ?? [])
+    setNumpadAbierto(true)
     setMoneda(plantilla.moneda === USD ? USD : ARS)
     // La cotización NO se copia: el dólar de hace un mes no es el de hoy.
     setTc('')
@@ -131,6 +138,8 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
   // Elegir categoría completa sola la subcategoría y el método que más usás
   // en ella. Si después tocás otra cosa, manda tu elección.
   const elegirCategoria = (cat) => {
+    // Si estás eligiendo categoría, el monto ya está: el teclado sobra.
+    setNumpadAbierto(false)
     setCategoria(cat)
     const sugeridos = defaultsDeCategoria(movimientos, tipo, cat)
     const subsDeCat = categorias.find((c) => c.nombre === cat)?.subcategorias ?? []
@@ -147,6 +156,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
 
   const aplicarCombo = (combo) => {
     navigator.vibrate?.(12)
+    setNumpadAbierto(false)
     setCategoria(combo.categoria)
     setSubcategoria(combo.subcategoria)
     setMetodo(combo.metodo)
@@ -231,6 +241,8 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setTipo(nuevoTipo)
     setCuotas(1)
     setTags([])
+    // Listo para el siguiente: lo primero vuelve a ser el monto.
+    setNumpadAbierto(true)
     // La moneda y la cotización se conservan: si estás cargando gastos en
     // dólares, lo más probable es que el próximo también lo sea.
     tocado.current = { sub: false, metodo: false }
@@ -378,7 +390,13 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
             )}
           </div>
 
-          <div className="flex items-baseline gap-1.5">
+          {/* Tocar el monto vuelve a abrir el teclado */}
+          <button
+            type="button"
+            onClick={() => setNumpadAbierto(true)}
+            className="flex w-full items-baseline gap-1.5 text-left"
+            aria-label="Editar el monto"
+          >
             <span className="text-3xl font-light text-slate-500">{MONEDAS[moneda].simbolo}</span>
             <span
               className={`min-w-0 flex-1 truncate text-right text-[2.6rem] font-bold leading-tight tracking-tight tabular-nums ${
@@ -387,7 +405,10 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
             >
               {display || '0'}
             </span>
-          </div>
+            {!numpadAbierto && (
+              <Pencil size={15} className="mb-1 shrink-0 text-slate-600" />
+            )}
+          </button>
 
           {/* Cotización: obligatoria en dólares, opcional en pesos para el caso
               "lo pagué en pesos pero me lo cobraron en dólares". */}
@@ -633,14 +654,32 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
 
       {/* Teclado + guardar, siempre a mano abajo */}
       <div className="safe-bottom sticky bottom-0 z-10 space-y-2 border-t border-white/5 bg-slate-950/85 px-3 pt-2 backdrop-blur-md">
-        <Numpad
-          tone={tipo}
-          onDigito={(d) => setCalc((c) => C.digito(c, d))}
-          onComa={() => setCalc((c) => C.coma(c))}
-          onOperador={(op) => setCalc((c) => C.operador(c, op))}
-          onRetroceso={() => setCalc((c) => C.retroceso(c))}
-          onLimpiar={() => setCalc(C.limpiar())}
-        />
+        {/* El teclado se pliega en lugar de desmontarse, para que aparezca y
+            desaparezca con un deslizamiento y no de un salto. */}
+        <div
+          className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+            numpadAbierto ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setNumpadAbierto(false)}
+              className="mx-auto mb-1.5 flex h-5 w-16 items-center justify-center rounded-full active:bg-white/5"
+              aria-label="Cerrar el teclado"
+            >
+              <span className="h-1 w-9 rounded-full bg-slate-600" />
+            </button>
+            <Numpad
+              tone={tipo}
+              onDigito={(d) => setCalc((c) => C.digito(c, d))}
+              onComa={() => setCalc((c) => C.coma(c))}
+              onOperador={(op) => setCalc((c) => C.operador(c, op))}
+              onRetroceso={() => setCalc((c) => C.retroceso(c))}
+              onLimpiar={() => setCalc(C.limpiar())}
+            />
+          </div>
+        </div>
 
         <div className="flex gap-2">
           {esEdicion && (
