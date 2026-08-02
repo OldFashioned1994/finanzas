@@ -9,17 +9,19 @@ import { hoyISO } from './format'
 //  categorías, presupuestos ni fijos). Este archivo sí.
 // ============================================================================
 
-const VERSION = 2
+const VERSION = 3
 
 export async function exportarBackup() {
-  const [movimientos, categorias, metodos, presupuestos, fijos, ajustes] = await Promise.all([
-    db.movimientos.toArray(),
-    db.categorias.toArray(),
-    db.metodos.toArray(),
-    db.presupuestos.toArray(),
-    db.fijos.toArray(),
-    db.ajustes.toArray(),
-  ])
+  const [movimientos, categorias, metodos, presupuestos, fijos, ajustes, cotizaciones] =
+    await Promise.all([
+      db.movimientos.toArray(),
+      db.categorias.toArray(),
+      db.metodos.toArray(),
+      db.presupuestos.toArray(),
+      db.fijos.toArray(),
+      db.ajustes.toArray(),
+      db.cotizaciones.toArray(),
+    ])
 
   const backup = {
     app: 'finanzas',
@@ -31,6 +33,7 @@ export async function exportarBackup() {
     presupuestos,
     fijos,
     ajustes,
+    cotizaciones,
   }
 
   descargar(
@@ -55,7 +58,15 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
     throw new Error('El archivo no es un backup de esta app.')
   }
 
-  const tablas = [db.movimientos, db.categorias, db.metodos, db.presupuestos, db.fijos, db.ajustes]
+  const tablas = [
+    db.movimientos,
+    db.categorias,
+    db.metodos,
+    db.presupuestos,
+    db.fijos,
+    db.ajustes,
+    db.cotizaciones,
+  ]
 
   return db.transaction('rw', tablas, async () => {
     if (modo === 'reemplazar') {
@@ -66,6 +77,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
       await db.presupuestos.bulkAdd(datos.presupuestos ?? [])
       await db.fijos.bulkAdd(datos.fijos ?? [])
       await db.ajustes.bulkPut(datos.ajustes ?? [])
+      await db.cotizaciones.bulkPut(datos.cotizaciones ?? [])
       return datos.movimientos.length
     }
 
@@ -87,14 +99,24 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
     )
     if (metsNuevos.length) await db.metodos.bulkAdd(metsNuevos.map(({ id, ...r }) => r))
 
+    // Las cotizaciones se pisan por mes: no hay riesgo de duplicar.
+    if (datos.cotizaciones?.length) await db.cotizaciones.bulkPut(datos.cotizaciones)
+
     return nuevos.length
   })
 }
 
 function huella(m) {
-  return [m.fecha, m.tipo, m.monto, m.categoria, m.subcategoria, m.metodo, m.descripcion ?? ''].join(
-    '|',
-  )
+  return [
+    m.fecha,
+    m.tipo,
+    m.monto,
+    m.moneda ?? 'ARS',
+    m.categoria,
+    m.subcategoria,
+    m.metodo,
+    m.descripcion ?? '',
+  ].join('|')
 }
 
 function descargar(blob, nombre) {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
+import { crearConversor } from '../utils/moneda'
 
 // ============================================================================
 //  Una única suscripción viva a IndexedDB para toda la app.
@@ -17,9 +18,11 @@ export function DatosProvider({ children }) {
   const presupuestos = useLiveQuery(() => db.presupuestos.toArray(), [], undefined)
   const fijos = useLiveQuery(() => db.fijos.toArray(), [], undefined)
   const ajustes = useLiveQuery(() => db.ajustes.toArray(), [], undefined)
+  const cotizaciones = useLiveQuery(() => db.cotizaciones.toArray(), [], undefined)
 
   const valor = useMemo(() => {
     const ordenar = (arr) => [...(arr ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+    const prefs = Object.fromEntries((ajustes ?? []).map((a) => [a.clave, a.valor]))
     return {
       cargando: movimientos === undefined || categorias === undefined,
       movimientos: movimientos ?? [],
@@ -27,9 +30,13 @@ export function DatosProvider({ children }) {
       metodos: ordenar(metodos),
       presupuestos: presupuestos ?? [],
       fijos: fijos ?? [],
-      ajustes: Object.fromEntries((ajustes ?? []).map((a) => [a.clave, a.valor])),
+      cotizaciones: cotizaciones ?? [],
+      ajustes: prefs,
+      // Un único conversor para toda la app: si cambia una cotización, todo lo
+      // que se muestre en la otra moneda se recalcula solo.
+      conversor: crearConversor(cotizaciones ?? [], Number(prefs.tcReferencia) || 0),
     }
-  }, [movimientos, categorias, metodos, presupuestos, fijos, ajustes])
+  }, [movimientos, categorias, metodos, presupuestos, fijos, ajustes, cotizaciones])
 
   return <DatosContext.Provider value={valor}>{children}</DatosContext.Provider>
 }

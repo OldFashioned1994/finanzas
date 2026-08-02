@@ -10,7 +10,13 @@ import { CONFIG, ICONOS } from './config'
 //    id           number   autoincremental, interno (NO se exporta)
 //    fecha        string   'YYYY-MM-DD'
 //    tipo         string   'gasto' | 'ingreso'
-//    monto        number   siempre positivo
+//    monto        number   siempre positivo, EN LA MONEDA DEL MOVIMIENTO
+//    moneda       string   'ARS' | 'USD'  (los viejos, sin campo, son ARS)
+//    tc           number   opcional: pesos por dólar de ESE movimiento.
+//                          Obligatorio si moneda es USD; opcional en ARS, para
+//                          el caso "lo pagué en pesos pero me lo cobraron en
+//                          dólares". Se guarda por movimiento a propósito: cada
+//                          gasto queda con la cotización del día en que pasó.
 //    categoria    string   texto (no id): el movimiento conserva el nombre con
 //                          el que se cargó aunque después renombres la categoría
 //    subcategoria string
@@ -24,6 +30,12 @@ import { CONFIG, ICONOS } from './config'
 //
 //  metodos       medios de pago / dónde entró la plata
 //    id, tipo, nombre, emoji, orden, archivado
+//    moneda       'ARS' | 'USD' | undefined -> si el método tiene moneda propia
+//                 (ej: "Efectivo USD"), elegirlo cambia solo la moneda del monto
+//
+//  cotizaciones  cuánto valía el dólar en cada mes, para poder expresar en
+//    mes          'YYYY-MM'                dólares los movimientos que no traen
+//    valor        number (pesos por dólar)  su propia cotización
 //
 //  presupuestos  tope mensual por categoría de gasto
 //    id, categoria (nombre), monto
@@ -59,6 +71,22 @@ db.version(2)
     await sembrarTaxonomia(tx)
     const movs = await tx.table('movimientos').toArray()
     await absorberDeMovimientos(tx, movs)
+  })
+
+db.version(3)
+  .stores({
+    movimientos: '++id, fecha, tipo, categoria, subcategoria, metodo, moneda, createdAt',
+    cotizaciones: 'mes',
+  })
+  .upgrade(async (tx) => {
+    // Todo lo cargado hasta acá era en pesos. No se toca ningún monto: solo se
+    // deja explícito lo que ya era implícito.
+    await tx
+      .table('movimientos')
+      .toCollection()
+      .modify((m) => {
+        m.moneda = 'ARS'
+      })
   })
 
 // Instalación nueva: no hay upgrade que correr, así que sembramos acá.
@@ -315,7 +343,7 @@ export async function reordenarCategorias(ids) {
 //  Métodos de pago
 // ---------------------------------------------------------------------------
 
-export async function agregarMetodo({ tipo, nombre, emoji }) {
+export async function agregarMetodo({ tipo, nombre, emoji, moneda }) {
   const orden = await db.metodos.where('tipo').equals(tipo).count()
   return db.metodos.add({
     tipo,
@@ -323,6 +351,7 @@ export async function agregarMetodo({ tipo, nombre, emoji }) {
     emoji: emoji || '💳',
     orden,
     archivado: false,
+    moneda: moneda ?? 'ARS',
   })
 }
 
@@ -392,12 +421,16 @@ export async function borrarFijo(id) {
 }
 
 // Confirma un fijo del mes: crea el movimiento y marca el fijo como hecho.
-export async function confirmarFijo(fijo, mesISO, monto) {
+// `tc` es la cotización a aplicar cuando el fijo está en dólares (una
+// suscripción, por ejemplo): queda guardada en el movimiento de ese mes.
+export async function confirmarFijo(fijo, mesISO, { monto, tc } = {}) {
   const dia = String(Math.min(fijo.diaMes || 1, diasDelMes(mesISO))).padStart(2, '0')
   const id = await agregarMovimiento({
     fecha: `${mesISO}-${dia}`,
     tipo: fijo.tipo,
     monto: monto ?? fijo.monto,
+    moneda: fijo.moneda ?? 'ARS',
+    tc: tc ?? null,
     categoria: fijo.categoria,
     subcategoria: fijo.subcategoria,
     metodo: fijo.metodo,
@@ -416,6 +449,15 @@ export async function omitirFijo(id, mesISO) {
 function diasDelMes(mesISO) {
   const [a, m] = mesISO.split('-').map(Number)
   return new Date(a, m, 0).getDate()
+}
+
+// ---------------------------------------------------------------------------
+//  Cotizaciones del dólar (una por mes)
+// ---------------------------------------------------------------------------
+
+export async function setCotizacion(mes, valor) {
+  if (!valor || valor <= 0) return db.cotizaciones.delete(mes)
+  return db.cotizaciones.put({ mes, valor })
 }
 
 // ---------------------------------------------------------------------------

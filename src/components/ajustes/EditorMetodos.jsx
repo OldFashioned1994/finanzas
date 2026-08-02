@@ -3,6 +3,7 @@ import { Plus, Trash2, Archive, ArchiveRestore } from 'lucide-react'
 import { useDatos } from '../../state/datos'
 import { agregarMetodo, renombrarMetodo, actualizarMetodo, borrarMetodo } from '../../db'
 import { CampoTexto } from './EditorCategorias'
+import { ARS, USD, MONEDAS } from '../../utils/moneda'
 
 export default function EditorMetodos({ onToast }) {
   const { metodos } = useDatos()
@@ -73,6 +74,21 @@ export default function EditorMetodos({ onToast }) {
               onGuardar={(v) => renombrarMetodo(met.id, v)}
               className="min-w-0 flex-1"
             />
+            {/* Un método con moneda propia (ej: "Efectivo USD") hace que al
+                elegirlo el monto se cargue directamente en esa moneda. */}
+            <button
+              onClick={() =>
+                actualizarMetodo(met.id, { moneda: met.moneda === USD ? ARS : USD })
+              }
+              className={`flex h-9 shrink-0 items-center justify-center rounded-xl px-2 text-xs font-bold active:scale-95 ${
+                met.moneda === USD
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-slate-800 text-slate-400'
+              }`}
+              aria-label={`Moneda: ${met.moneda === USD ? 'dólares' : 'pesos'}`}
+            >
+              {MONEDAS[met.moneda === USD ? USD : ARS].corto}
+            </button>
             <button
               onClick={() => actualizarMetodo(met.id, { archivado: !met.archivado })}
               className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-slate-400 active:scale-95"

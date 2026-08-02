@@ -1,5 +1,6 @@
 import { TINTA } from '../../utils/paleta'
-import { formatCorto, formatPct } from '../../utils/format'
+import { formatPct } from '../../utils/format'
+import { formatCortoEn, ARS } from '../../utils/moneda'
 
 // Anillo de composición: cuánto pesa cada categoría sobre el total del período.
 // Los segmentos se separan con un hueco del color de la superficie (2px) para
@@ -8,7 +9,15 @@ const R = 46
 const CIRC = 2 * Math.PI * R
 const HUECO = 2.4
 
-export default function Donut({ datos, total, seleccion, onSelect, etiqueta = 'Gastos' }) {
+export default function Donut({
+  datos,
+  total,
+  seleccion,
+  onSelect,
+  etiqueta = 'Gastos',
+  moneda = ARS,
+}) {
+  const formatCorto = (n) => formatCortoEn(n, moneda)
   let acumulado = 0
   const activo = datos.find((d) => d.nombre === seleccion)
 

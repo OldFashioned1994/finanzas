@@ -5,6 +5,9 @@ const COLUMNS = [
   { header: 'Fecha', width: 14 },
   { header: 'Tipo', width: 10 },
   { header: 'Monto', width: 16 },
+  { header: 'Moneda', width: 10 },
+  { header: 'Cotización', width: 12 },
+  { header: 'Monto en pesos', width: 16 },
   { header: 'Categoría', width: 22 },
   { header: 'Subcategoría', width: 18 },
   { header: 'Método de pago', width: 20 },
@@ -14,7 +17,9 @@ const COLUMNS = [
 // Genera y descarga un .xlsx listo para abrir/importar en Google Sheets.
 // Fechas como fecha real (dd/mm/yyyy) y montos como número, así Sheets
 // los reconoce y podés hacer cuentas directamente.
-export async function exportarXlsx(movimientos) {
+// `conversor` es opcional: si viene, se completa la columna de pesos también
+// para los movimientos en dólares que no traigan su propia cotización.
+export async function exportarXlsx(movimientos, conversor) {
   // La librería de xlsx pesa ~60 KB y solo hace falta al exportar: se carga
   // recién en ese momento para no demorar el arranque de la app.
   const { default: writeXlsxFile } = await import('write-excel-file/browser')
@@ -32,15 +37,23 @@ export async function exportarXlsx(movimientos) {
     align: 'center',
   }))
 
-  const rows = ordenados.map((m) => [
+  const rows = ordenados.map((m) => {
+    const esUSD = m.moneda === 'USD'
+    const tc = m.tc || (conversor ? conversor.tcDe(m) : 0)
+    const enPesos = esUSD ? (tc ? Number(m.monto) * tc : null) : Number(m.monto) || 0
+    return [
     { type: Date, value: isoADate(m.fecha), format: 'dd/mm/yyyy' },
     { type: String, value: m.tipo === 'gasto' ? 'Gasto' : 'Ingreso' },
     { type: Number, value: Number(m.monto) || 0, format: '#,##0.00' },
+    { type: String, value: esUSD ? 'USD' : 'ARS' },
+    { type: Number, value: m.tc ? Number(m.tc) : null, format: '#,##0.00' },
+    { type: Number, value: enPesos, format: '#,##0.00' },
     { type: String, value: m.categoria || null },
     { type: String, value: m.subcategoria || null },
     { type: String, value: m.metodo || null },
     { type: String, value: m.descripcion || null },
-  ])
+    ]
+  })
 
   // write-excel-file v4: writeXlsxFile(data, sheetOptions) devuelve un objeto
   // con .toFile(nombre), que genera y dispara la descarga en el navegador.

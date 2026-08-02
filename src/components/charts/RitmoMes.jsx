@@ -1,5 +1,5 @@
 import { TINTA, FLUJO } from '../../utils/paleta'
-import { formatCorto } from '../../utils/format'
+import { formatCortoEn, ARS } from '../../utils/moneda'
 
 // Ritmo de gasto: cuánto llevás gastado acumulado día a día, contra la misma
 // curva del mes anterior. Responde "¿voy más rápido o más lento que el mes
@@ -15,7 +15,8 @@ const PAD_DER = 4
 const PAD_SUP = 12
 const PAD_INF = 16
 
-export default function RitmoMes({ actual, anterior, diaHoy }) {
+export default function RitmoMes({ actual, anterior, diaHoy, moneda = ARS }) {
+  const formatCorto = (n) => formatCortoEn(n, moneda)
   const maxActual = actual.length ? actual[actual.length - 1].acum : 0
   const maxAnterior = anterior.length ? anterior[anterior.length - 1].acum : 0
   const max = Math.max(maxActual, maxAnterior, 1)

@@ -13,23 +13,20 @@ import {
 } from 'lucide-react'
 import { db, borrarMovimiento } from '../db'
 import { useDatos, useIconos } from '../state/datos'
-import {
-  formatMonto,
-  formatMontoRedondo,
-  formatCorto,
-  mesActualISO,
-  nombreMes,
-  etiquetaDia,
-} from '../utils/format'
+import { mesActualISO, nombreMes, etiquetaDia } from '../utils/format'
+import { ARS, USD, formatRedondoEn, formatCortoEn, monedaDe } from '../utils/moneda'
 
 export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, onToast }) {
-  const { movimientos, cargando } = useDatos()
+  const { movimientos, cargando, conversor, ajustes } = useDatos()
   const icono = useIconos()
 
   const [mes, setMes] = useState(filtroInicial?.mes ?? mesActualISO())
   const [tipo, setTipo] = useState(filtroInicial?.tipo ?? 'todos')
   const [categoria, setCategoria] = useState(filtroInicial?.categoria ?? 'todas')
+  const [monedaFiltro, setMonedaFiltro] = useState('todas')
   const [busqueda, setBusqueda] = useState('')
+  // Los totales se leen en la misma moneda que el panel.
+  const monedaVista = ajustes.monedaPanel === USD ? USD : ARS
   const [verFiltros, setVerFiltros] = useState(false)
   const [abierto, setAbierto] = useState(null)
 
@@ -64,6 +61,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     return delMes
       .filter((m) => tipo === 'todos' || m.tipo === tipo)
       .filter((m) => categoria === 'todas' || m.categoria === categoria)
+      .filter((m) => monedaFiltro === 'todas' || monedaDe(m) === monedaFiltro)
       .filter((m) => {
         if (!q) return true
         return (
@@ -77,7 +75,15 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
       .sort(
         (a, b) => b.fecha.localeCompare(a.fecha) || (b.createdAt ?? 0) - (a.createdAt ?? 0),
       )
-  }, [delMes, tipo, categoria, busqueda])
+  }, [delMes, tipo, categoria, monedaFiltro, busqueda])
+
+  // Los subtotales y totales suman monedas distintas, así que se calculan sobre
+  // los montos convertidos; cada movimiento se sigue mostrando en la suya.
+  const convertido = useMemo(() => {
+    const mapa = new Map()
+    for (const m of lista) mapa.set(m.id, conversor.enMoneda(m, monedaVista))
+    return mapa
+  }, [lista, conversor, monedaVista])
 
   // Agrupado por día: ver el subtotal diario es lo que más rápido te dice
   // "este día se me fue la mano".
@@ -90,27 +96,31 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
         grupos.push(actual)
       }
       actual.movimientos.push(m)
-      if (m.tipo === 'gasto') actual.gastos += m.monto
-      else actual.ingresos += m.monto
+      const monto = convertido.get(m.id) ?? 0
+      if (m.tipo === 'gasto') actual.gastos += monto
+      else actual.ingresos += monto
     }
     return grupos
-  }, [lista])
+  }, [lista, convertido])
 
   const totales = useMemo(() => {
     let gastos = 0
     let ingresos = 0
     for (const m of lista) {
-      if (m.tipo === 'gasto') gastos += m.monto
-      else ingresos += m.monto
+      const monto = convertido.get(m.id) ?? 0
+      if (m.tipo === 'gasto') gastos += monto
+      else ingresos += monto
     }
     return { gastos, ingresos, balance: ingresos - gastos }
-  }, [lista])
+  }, [lista, convertido])
 
-  const hayFiltro = tipo !== 'todos' || categoria !== 'todas' || busqueda.trim() !== ''
+  const hayFiltro =
+    tipo !== 'todos' || categoria !== 'todas' || monedaFiltro !== 'todas' || busqueda.trim() !== ''
 
   const limpiarFiltros = () => {
     setTipo('todos')
     setCategoria('todas')
+    setMonedaFiltro('todas')
     setBusqueda('')
   }
 
@@ -190,6 +200,16 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
               <option value={categoria}>{categoria}</option>
             )}
           </select>
+
+          <select
+            value={monedaFiltro}
+            onChange={(e) => setMonedaFiltro(e.target.value)}
+            className={selectCls}
+          >
+            <option value="todas">Pesos y dólares</option>
+            <option value={ARS}>Solo pesos</option>
+            <option value={USD}>Solo dólares</option>
+          </select>
           {hayFiltro && (
             <button
               onClick={limpiarFiltros}
@@ -203,11 +223,12 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
 
       {/* Totales de lo que estás viendo */}
       <div className="grid grid-cols-3 gap-2">
-        <Total label="Gastos" valor={totales.gastos} Icon={TrendingDown} clase="text-rose-400" />
-        <Total label="Ingresos" valor={totales.ingresos} Icon={TrendingUp} clase="text-emerald-400" />
+        <Total label="Gastos" valor={totales.gastos} moneda={monedaVista} Icon={TrendingDown} clase="text-rose-400" />
+        <Total label="Ingresos" valor={totales.ingresos} moneda={monedaVista} Icon={TrendingUp} clase="text-emerald-400" />
         <Total
           label="Balance"
           valor={totales.balance}
+          moneda={monedaVista}
           Icon={Wallet}
           clase={totales.balance >= 0 ? 'text-indigo-300' : 'text-rose-400'}
         />
@@ -228,15 +249,20 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
               <div className="mb-1.5 flex items-baseline justify-between gap-2 px-1">
                 <h3 className="text-sm font-semibold text-slate-300">{etiquetaDia(dia.fecha)}</h3>
                 <span className="text-xs tabular-nums text-slate-500">
-                  {dia.gastos > 0 && `−${formatCorto(dia.gastos)}`}
+                  {dia.gastos > 0 && `−${formatCortoEn(dia.gastos, monedaVista)}`}
                   {dia.gastos > 0 && dia.ingresos > 0 && ' · '}
-                  {dia.ingresos > 0 && `+${formatCorto(dia.ingresos)}`}
+                  {dia.ingresos > 0 && `+${formatCortoEn(dia.ingresos, monedaVista)}`}
                 </span>
               </div>
               <ul className="overflow-hidden rounded-2xl border border-white/5 bg-slate-900/45">
                 {dia.movimientos.map((m, i) => {
                   const esGasto = m.tipo === 'gasto'
                   const activo = abierto === m.id
+                  const suMoneda = monedaDe(m)
+                  // Cada movimiento se muestra en la moneda en que se cargó; si
+                  // esa no es la que estás leyendo, va el equivalente al lado.
+                  const equivalente =
+                    suMoneda !== monedaVista ? convertido.get(m.id) : null
                   return (
                     <li key={m.id} className={i > 0 ? 'border-t border-white/5' : ''}>
                       <button
@@ -259,13 +285,20 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
                             {m.descripcion && <span className="italic"> · {m.descripcion}</span>}
                           </span>
                         </span>
-                        <span
-                          className={`shrink-0 text-base font-bold tabular-nums ${
-                            esGasto ? 'text-rose-400' : 'text-emerald-400'
-                          }`}
-                        >
-                          {esGasto ? '−' : '+'}
-                          {formatMontoRedondo(m.monto)}
+                        <span className="shrink-0 text-right">
+                          <span
+                            className={`block text-base font-bold tabular-nums ${
+                              esGasto ? 'text-rose-400' : 'text-emerald-400'
+                            }`}
+                          >
+                            {esGasto ? '−' : '+'}
+                            {formatRedondoEn(m.monto, suMoneda)}
+                          </span>
+                          {equivalente != null && (
+                            <span className="block text-xs tabular-nums text-slate-500">
+                              ≈ {formatRedondoEn(equivalente, monedaVista)}
+                            </span>
+                          )}
                         </span>
                       </button>
 
@@ -309,14 +342,14 @@ function AccionFila({ Icon, children, onClick, tono = 'slate' }) {
   )
 }
 
-function Total({ label, valor, Icon, clase }) {
+function Total({ label, valor, moneda, Icon, clase }) {
   return (
     <div className="rounded-2xl border border-white/5 bg-slate-900/45 p-2.5 text-center">
       <p className="flex items-center justify-center gap-1 text-xs text-slate-400">
         <Icon size={12} className={clase} /> {label}
       </p>
       <p className={`mt-0.5 truncate text-sm font-bold leading-tight tabular-nums ${clase}`}>
-        {formatMontoRedondo(valor)}
+        {formatRedondoEn(valor, moneda)}
       </p>
     </div>
   )

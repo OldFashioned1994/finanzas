@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useDatos, useIconos } from '../state/datos'
 import { confirmarFijo, omitirFijo } from '../db'
+import { CircleDollarSign } from 'lucide-react'
 import {
   PERIODOS,
   rangoDe,
@@ -33,16 +34,17 @@ import {
   fijosPendientes,
   diasConGasto,
 } from '../utils/calc'
+import { formatPct, formatDelta, mesActualISO, formatFecha } from '../utils/format'
 import {
-  formatMonto,
-  formatMontoRedondo,
-  formatCorto,
-  formatPct,
-  formatDelta,
-  mesActualISO,
-  hoyISO,
-  formatFecha,
-} from '../utils/format'
+  ARS,
+  USD,
+  MONEDAS,
+  formatEn,
+  formatRedondoEn,
+  formatCortoEn,
+  normalizarMontos,
+} from '../utils/moneda'
+import { setAjuste } from '../db'
 import { SERIES, GRIS, ESTADO, FLUJO } from '../utils/paleta'
 import Tarjeta from './Tarjeta'
 import Donut from './charts/Donut'
@@ -52,13 +54,30 @@ import RitmoMes from './charts/RitmoMes'
 const TOP_DONUT = 7
 
 export default function Dashboard({ onVerMovimientos, onToast }) {
-  const { movimientos, categorias, presupuestos, fijos, cargando } = useDatos()
+  const { movimientos: crudos, categorias, presupuestos, fijos, cargando, conversor, ajustes } =
+    useDatos()
   const icono = useIconos()
 
   const [periodo, setPeriodo] = useState('mes')
   const [mes, setMes] = useState(mesActualISO())
   const [tipo, setTipo] = useState('gasto')
   const [seleccion, setSeleccion] = useState(null)
+  const [monedaVista, setMonedaVista] = useState(ajustes.monedaPanel === USD ? USD : ARS)
+
+  // Todo el tablero se calcula sobre una sola moneda: los movimientos se
+  // convierten una vez acá y el motor de cálculo sigue sin saber de monedas.
+  const { movimientos, sinCotizacion } = useMemo(
+    () => normalizarMontos(crudos, monedaVista, conversor),
+    [crudos, monedaVista, conversor],
+  )
+
+  const fCorto = (n) => formatCortoEn(n, monedaVista)
+  const fRedondo = (n) => formatRedondoEn(n, monedaVista)
+
+  const cambiarMoneda = (m) => {
+    setMonedaVista(m)
+    setAjuste('monedaPanel', m)
+  }
 
   // Color estable por categoría: sale de su posición en la taxonomía, no del
   // ranking del mes. Así "Alimentación" es del mismo color en todos los meses.
@@ -121,6 +140,15 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
     [movimientos, mes],
   )
 
+  // Los presupuestos se definen en pesos; si el tablero se está leyendo en
+  // dólares hay que convertirlos con la cotización del mes que se está viendo.
+  const presupuestosVista = useMemo(() => {
+    if (monedaVista === ARS) return presupuestos
+    const tc = conversor.tcDeMes(mes)
+    if (!tc) return []
+    return presupuestos.map((p) => ({ ...p, monto: p.monto / tc }))
+  }, [presupuestos, monedaVista, conversor, mes])
+
   const pendientes = useMemo(() => fijosPendientes(fijos), [fijos])
   const esMesActual = mes === mesActualISO()
   const hayDatos = delPeriodo.length > 0
@@ -167,26 +195,60 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-4 gap-1 rounded-2xl bg-slate-800/50 p-1 ring-1 ring-white/5">
-        {PERIODOS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => {
-              setPeriodo(p.id)
-              setSeleccion(null)
-            }}
-            className={`min-h-9 rounded-xl text-sm font-semibold transition-all active:scale-95 ${
-              periodo === p.id ? 'bg-indigo-500 text-white' : 'text-slate-400'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
+      <div className="flex gap-1.5">
+        <div className="grid flex-1 grid-cols-4 gap-1 rounded-2xl bg-slate-800/50 p-1 ring-1 ring-white/5">
+          {PERIODOS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                setPeriodo(p.id)
+                setSeleccion(null)
+              }}
+              className={`min-h-9 rounded-xl text-sm font-semibold transition-all active:scale-95 ${
+                periodo === p.id ? 'bg-indigo-500 text-white' : 'text-slate-400'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {/* En qué moneda se lee todo el tablero. Ver el año en dólares es la
+            única forma de comparar meses sin que la inflación los deforme. */}
+        <button
+          onClick={() => cambiarMoneda(monedaVista === ARS ? USD : ARS)}
+          className={`flex min-h-11 shrink-0 items-center gap-1 rounded-2xl px-2.5 text-sm font-bold active:scale-95 ${
+            monedaVista === USD
+              ? 'bg-emerald-500/20 text-emerald-300'
+              : 'bg-slate-800/50 text-slate-300 ring-1 ring-white/5'
+          }`}
+          aria-label={`Ver en ${monedaVista === ARS ? 'dólares' : 'pesos'}`}
+        >
+          <CircleDollarSign size={15} />
+          {MONEDAS[monedaVista].corto}
+        </button>
       </div>
+
+      {sinCotizacion > 0 && (
+        <button
+          onClick={() => cambiarMoneda(ARS)}
+          className="flex w-full items-center gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-left text-xs text-amber-200"
+        >
+          <CircleDollarSign size={16} className="shrink-0" />
+          <span>
+            {sinCotizacion} movimiento{sinCotizacion === 1 ? '' : 's'} sin cotización quedaron
+            afuera. Cargá el dólar del mes en Ajustes, o volvé a pesos.
+          </span>
+        </button>
+      )}
 
       {/* Gastos fijos por confirmar */}
       {pendientes.length > 0 && (
-        <PendientesFijos pendientes={pendientes} icono={icono} onToast={onToast} />
+        <PendientesFijos
+          pendientes={pendientes}
+          icono={icono}
+          onToast={onToast}
+          conversor={conversor}
+        />
       )}
 
       {/* KPIs */}
@@ -198,6 +260,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
           Icon={TrendingDown}
           color="text-rose-400"
           referencia={refComparacion}
+          moneda={monedaVista}
           // En gastos, subir es malo: el semáforo se invierte respecto de ingresos.
           invertido
         />
@@ -208,11 +271,13 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
           Icon={TrendingUp}
           color="text-emerald-400"
           referencia={refComparacion}
+          moneda={monedaVista}
         />
         <Kpi
           label="Balance"
           valor={tot.balance}
           Icon={Wallet}
+          moneda={monedaVista}
           color={tot.balance >= 0 ? 'text-indigo-300' : 'text-rose-400'}
           nota={tot.balance >= 0 ? 'te sobró' : 'gastaste de más'}
         />
@@ -220,6 +285,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
           label="Tasa de ahorro"
           texto={tot.tasaAhorro == null ? '—' : formatPct(tot.tasaAhorro, 0)}
           Icon={PiggyBank}
+          moneda={monedaVista}
           color={tot.tasaAhorro == null ? 'text-slate-400' : tot.tasaAhorro >= 0.1 ? 'text-emerald-400' : 'text-amber-400'}
           nota={tot.tasaAhorro == null ? 'sin ingresos cargados' : 'de lo que entró'}
         />
@@ -240,7 +306,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
               titulo="Ritmo de gasto"
               accion={
                 <span className="flex items-center gap-1 text-xs text-slate-500">
-                  <Gauge size={13} /> {formatCorto(ritmo.promedioDiario)}/día
+                  <Gauge size={13} /> {fCorto(ritmo.promedioDiario)}/día
                 </span>
               }
             >
@@ -248,6 +314,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                 actual={acumActual}
                 anterior={acumAnterior}
                 diaHoy={esMesActual ? ritmo.transcurridos : null}
+                moneda={monedaVista}
               />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-white/5 pt-2 text-xs">
                 <span className="text-slate-500">
@@ -257,7 +324,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                 {ritmo.proyeccion != null && (
                   <span className="flex items-center gap-1 font-semibold text-slate-300">
                     <CalendarClock size={13} className="text-indigo-400" />
-                    Cierre estimado {formatCorto(ritmo.proyeccion)}
+                    Cierre estimado {fCorto(ritmo.proyeccion)}
                   </span>
                 )}
               </div>
@@ -289,6 +356,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                   total={totalTipo}
                   seleccion={seleccion}
                   onSelect={setSeleccion}
+                  moneda={monedaVista}
                   etiqueta={tipo === 'gasto' ? 'Gastos' : 'Ingresos'}
                 />
                 <ul className="w-full space-y-1">
@@ -308,7 +376,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                           {d.nombre}
                         </span>
                         <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-200">
-                          {formatCorto(d.total)}
+                          {fCorto(d.total)}
                         </span>
                         <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-500">
                           {formatPct(d.pct, 1)}
@@ -334,6 +402,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                   abierta={seleccion === c.nombre}
                   onToggle={() => setSeleccion(seleccion === c.nombre ? null : c.nombre)}
                   onVerMovimientos={() => verMovimientosDe(c.nombre)}
+                  moneda={monedaVista}
                   hayComparacion={Boolean(rangoPrevio)}
                 />
               ))}
@@ -341,13 +410,14 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
           </Tarjeta>
 
           {/* Presupuestos */}
-          {tipo === 'gasto' && periodo === 'mes' && presupuestos.length > 0 && (
+          {tipo === 'gasto' && periodo === 'mes' && presupuestosVista.length > 0 && (
             <PanelPresupuestos
-              presupuestos={presupuestos}
+              presupuestos={presupuestosVista}
               categorias={categoriasDelPeriodo}
               icono={icono}
               ritmo={ritmo}
               esMesActual={esMesActual}
+              moneda={monedaVista}
             />
           )}
 
@@ -361,7 +431,15 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
               </div>
             }
           >
-            <EvolucionMeses serie={serie12} mesActivo={mes} onSelect={(m) => { setMes(m); setPeriodo('mes') }} />
+            <EvolucionMeses
+              serie={serie12}
+              mesActivo={mes}
+              moneda={monedaVista}
+              onSelect={(m) => {
+                setMes(m)
+                setPeriodo('mes')
+              }}
+            />
             <p className="mt-1 text-center text-xs text-slate-500">
               Tocá un mes para verlo en detalle
             </p>
@@ -379,7 +457,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                         <span className="truncate text-slate-300">{m.nombre}</span>
                       </span>
                       <span className="shrink-0 tabular-nums text-slate-200">
-                        {formatCorto(m.total)}
+                        {fCorto(m.total)}
                         <span className="ml-1.5 text-xs text-slate-500">{formatPct(m.pct, 0)}</span>
                       </span>
                     </div>
@@ -414,7 +492,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
                       </span>
                     </span>
                     <span className="shrink-0 text-sm font-bold tabular-nums text-slate-100">
-                      {formatMontoRedondo(m.monto)}
+                      {fRedondo(m.monto)}
                     </span>
                   </li>
                 ))}
@@ -431,7 +509,9 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
 
 // ---------------------------------------------------------------------------
 
-function Kpi({ label, valor, texto, delta, Icon, color, nota, invertido, referencia }) {
+function Kpi({ label, valor, texto, delta, Icon, color, nota, invertido, referencia, moneda }) {
+  const fCorto = (n) => formatCortoEn(n, moneda)
+  const fRedondo = (n) => formatRedondoEn(n, moneda)
   const deltaTexto = formatDelta(delta)
   // Un delta sin base de comparación no se muestra: "+∞%" no informa nada.
   const sube = delta > 0
@@ -442,7 +522,7 @@ function Kpi({ label, valor, texto, delta, Icon, color, nota, invertido, referen
         <Icon size={13} className={color} /> {label}
       </p>
       <p className={`mt-1 truncate text-lg font-bold leading-tight tabular-nums ${color}`}>
-        {texto ?? formatMontoRedondo(valor)}
+        {texto ?? fRedondo(valor)}
       </p>
       {deltaTexto ? (
         <p
@@ -459,7 +539,9 @@ function Kpi({ label, valor, texto, delta, Icon, color, nota, invertido, referen
   )
 }
 
-function FilaCategoria({ cat, color, icono, maximo, abierta, onToggle, onVerMovimientos, hayComparacion }) {
+function FilaCategoria({ cat, color, icono, maximo, abierta, onToggle, onVerMovimientos, hayComparacion, moneda }) {
+  const fCorto = (n) => formatCortoEn(n, moneda)
+  const fRedondo = (n) => formatRedondoEn(n, moneda)
   const delta = formatDelta(cat.variacion)
   return (
     <li>
@@ -471,7 +553,7 @@ function FilaCategoria({ cat, color, icono, maximo, abierta, onToggle, onVerMovi
             <span className="shrink-0 text-xs text-slate-500">{formatPct(cat.pct, 0)}</span>
           </span>
           <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-100">
-            {formatCorto(cat.total)}
+            {fCorto(cat.total)}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -502,7 +584,7 @@ function FilaCategoria({ cat, color, icono, maximo, abierta, onToggle, onVerMovi
             {cat.subs.map((s) => (
               <li key={s.nombre} className="flex items-center gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate text-slate-400">{s.nombre}</span>
-                <span className="tabular-nums text-slate-300">{formatCorto(s.total)}</span>
+                <span className="tabular-nums text-slate-300">{fCorto(s.total)}</span>
                 <span className="w-11 text-right text-xs tabular-nums text-slate-500">
                   {formatPct(s.pct, 0)}
                 </span>
@@ -512,7 +594,7 @@ function FilaCategoria({ cat, color, icono, maximo, abierta, onToggle, onVerMovi
           <div className="mt-2 flex items-center justify-between border-t border-white/5 pt-2 text-xs">
             <span className="text-slate-500">
               {cat.cantidad} movimiento{cat.cantidad === 1 ? '' : 's'}
-              {cat.anterior != null && ` · antes ${formatCorto(cat.anterior)}`}
+              {cat.anterior != null && ` · antes ${fCorto(cat.anterior)}`}
             </span>
             <button
               onClick={onVerMovimientos}
@@ -527,7 +609,10 @@ function FilaCategoria({ cat, color, icono, maximo, abierta, onToggle, onVerMovi
   )
 }
 
-function PanelPresupuestos({ presupuestos, categorias, icono, ritmo, esMesActual }) {
+function PanelPresupuestos({ presupuestos, categorias, icono, ritmo, esMesActual, moneda }) {
+  const fCorto = (n) => formatCortoEn(n, moneda)
+  const fRedondo = (n) => formatRedondoEn(n, moneda)
+  
   const gastadoPor = new Map(categorias.map((c) => [c.nombre, c.total]))
   // Con el mes empezado, el presupuesto se juzga contra lo que corresponde
   // haber gastado a esta altura, no contra el total: 80% el día 5 es alarma,
@@ -551,8 +636,8 @@ function PanelPresupuestos({ presupuestos, categorias, icono, ritmo, esMesActual
                   <span className="truncate text-slate-300">{p.categoria}</span>
                 </span>
                 <span className="shrink-0 tabular-nums text-slate-300">
-                  {formatCorto(gastado)}
-                  <span className="text-slate-500"> / {formatCorto(p.monto)}</span>
+                  {fCorto(gastado)}
+                  <span className="text-slate-500"> / {fCorto(p.monto)}</span>
                 </span>
               </div>
               <div className="relative h-2.5 overflow-hidden rounded-full bg-slate-800">
@@ -571,10 +656,10 @@ function PanelPresupuestos({ presupuestos, categorias, icono, ritmo, esMesActual
               </div>
               <p className="mt-1 text-xs font-medium" style={{ color }}>
                 {excedido
-                  ? `Excedido por ${formatCorto(gastado - p.monto)}`
+                  ? `Excedido por ${fCorto(gastado - p.monto)}`
                   : adelantado
                     ? `Vas adelantado: ${formatPct(uso, 0)} usado`
-                    : `Te queda ${formatCorto(p.monto - gastado)}`}
+                    : `Te queda ${fCorto(p.monto - gastado)}`}
               </p>
             </li>
           )
@@ -584,13 +669,20 @@ function PanelPresupuestos({ presupuestos, categorias, icono, ritmo, esMesActual
   )
 }
 
-function PendientesFijos({ pendientes, icono, onToast }) {
+function PendientesFijos({ pendientes, icono, onToast, conversor }) {
   const mes = mesActualISO()
   const [ocupado, setOcupado] = useState(null)
 
   const confirmar = async (f) => {
+    // Un fijo en dólares necesita cotización para poder compararse con el resto.
+    // Si todavía no hay ninguna cargada, no lo confirmamos a ciegas.
+    const tc = f.moneda === USD ? conversor?.sugerida(mes) : null
+    if (f.moneda === USD && !tc) {
+      onToast?.({ msg: 'Cargá primero el dólar del mes en Ajustes', tone: 'error' })
+      return
+    }
     setOcupado(f.id)
-    await confirmarFijo(f, mes)
+    await confirmarFijo(f, mes, { tc })
     setOcupado(null)
     onToast?.({ msg: `${f.subcategoria} confirmado`, tone: 'ok' })
   }
@@ -621,7 +713,7 @@ function PendientesFijos({ pendientes, icono, onToast }) {
                 {f.subcategoria}
               </span>
               <span className="block truncate text-xs text-slate-500">
-                día {f.diaMes} · {formatMonto(f.monto)}
+                día {f.diaMes} · {formatEn(f.monto, f.moneda)}
               </span>
             </span>
             <button

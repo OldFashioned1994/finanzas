@@ -27,6 +27,8 @@ versión nueva al volver a abrirla.
 
 Es la pantalla de inicio, pensada para que un gasto se registre en segundos:
 
+0. **Pesos o dólares**: el selector `$ / US$` al lado del monto define en qué
+   moneda lo tipeás (ver *Dólares* más abajo).
 1. **Monto** en el teclado propio de la app, que además es **calculadora**: podés
    tipear `1200 + 340 + 85` y el botón te resuelve la cuenta antes de guardar.
 2. **Frecuentes**: la fila de arriba arma los combos que más usás
@@ -62,8 +64,32 @@ Lista agrupada por día con subtotal diario, buscador y filtros por mes / tipo /
 categoría. Al tocar un movimiento aparecen **Repetir** (lo vuelve a cargar con
 fecha de hoy), **Editar** y **Borrar** (con deshacer).
 
+### Dólares
+
+La app maneja pesos y dólares, con **cotización manual**: el número lo ponés vos
+(el dólar que uses: blue, MEP, tarjeta). No hay llamadas a internet.
+
+- **Gasto en dólares**: tocás `US$`, ponés el monto y la cotización. Mientras
+  cargás ves el equivalente en pesos (`US$50 × 1.310 = $65.500`). No hace falta
+  tener una "cuenta en dólares": alcanza con la cotización.
+- **Gasto en pesos que te cobraron en dólares**: dejás el monto en `$` y tocás
+  *"Me lo cobraron en dólares"* para agregarle la cotización.
+- **Que salga de la caja de dólares**: creás un método (ej. "Caja dólares") y en
+  Ajustes lo marcás como `US$`. Al elegirlo, la carga pasa sola a dólares.
+- **Cada movimiento guarda su propia cotización**, así un gasto de marzo sigue
+  valiendo los dólares que valía en marzo. El monto convertido no se guarda: se
+  calcula al mostrar.
+- **El panel se lee en cualquiera de las dos monedas** con el botón `$ / US$`.
+  Ver los 12 meses en dólares es la única forma de compararlos sin que la
+  inflación los deforme.
+- Los movimientos sin cotización propia usan la del mes (Ajustes → Dólar); si un
+  mes no tiene, hereda la del mes anterior más cercano. Lo que no se pueda
+  convertir queda afuera y la app lo avisa, en vez de inventar un número.
+
 ### Ajustes
 
+- **Dólar**: cotización de referencia y una por mes, para poder leer el histórico
+  en dólares.
 - **Presupuestos** mensuales por categoría, con sugerencia basada en tu promedio
   real de los últimos 3 meses.
 - **Gastos fijos** (alquiler, expensas, streaming): el día que corresponde
@@ -90,10 +116,11 @@ estando en la misma Wi-Fi.
 
 ## Notas técnicas
 
-- **Datos**: Dexie sobre IndexedDB, esquema v2 (`movimientos`, `categorias`,
-  `metodos`, `presupuestos`, `fijos`, `ajustes`). La migración desde v1 conserva
-  los movimientos y rescata categorías o métodos que existan en el historial y no
-  estén en la semilla.
+- **Datos**: Dexie sobre IndexedDB, esquema v3 (`movimientos`, `categorias`,
+  `metodos`, `presupuestos`, `fijos`, `cotizaciones`, `ajustes`). La migración
+  desde v1 conserva los movimientos y rescata categorías o métodos que existan en
+  el historial y no estén en la semilla; la de v3 marca como pesos todo lo que ya
+  estaba cargado, sin tocar un monto.
 - [`src/config.js`](src/config.js) es **solo la semilla** de la primera ejecución.
   El día a día se edita desde Ajustes.
 - **Gráficos**: SVG propio, sin librería (Recharts pesaba más que toda la app). La

@@ -3,7 +3,7 @@ import { Plus, Trash2, Power, X } from 'lucide-react'
 import { useDatos, useCategoriasDe, useMetodosDe } from '../../state/datos'
 import { agregarFijo, actualizarFijo, borrarFijo } from '../../db'
 import { parseMonto, limpiarInputMonto } from '../../utils/monto'
-import { formatMonto } from '../../utils/format'
+import { ARS, USD, MONEDAS, formatEn } from '../../utils/moneda'
 
 // Gastos e ingresos que se repiten todos los meses (alquiler, expensas,
 // streaming, sueldo). No se cargan solos: el día que corresponde aparecen en el
@@ -37,7 +37,7 @@ export default function EditorFijos({ onToast }) {
                 <span className="font-normal text-slate-500"> · {f.categoria}</span>
               </span>
               <span className="block truncate text-xs text-slate-500">
-                {formatMonto(f.monto)} · {f.metodo}
+                {formatEn(f.monto, f.moneda)} · {f.metodo}
                 {f.ultimoMes && ` · último ${f.ultimoMes}`}
               </span>
             </span>
@@ -88,6 +88,7 @@ export default function EditorFijos({ onToast }) {
 function FormularioFijo({ onGuardar, onCancelar }) {
   const [tipo, setTipo] = useState('gasto')
   const [monto, setMonto] = useState('')
+  const [moneda, setMoneda] = useState(ARS)
   const [categoria, setCategoria] = useState('')
   const [subcategoria, setSubcategoria] = useState('')
   const [metodo, setMetodo] = useState('')
@@ -132,8 +133,22 @@ function FormularioFijo({ onGuardar, onCancelar }) {
       </div>
 
       <div className="flex gap-2">
-        <div className="flex min-h-11 flex-1 items-center rounded-xl bg-slate-800 px-3">
-          <span className="text-slate-500">$</span>
+        <div className="flex min-h-11 flex-1 items-center rounded-xl bg-slate-800 px-2">
+          {/* Un fijo puede ser en dólares: una suscripción, por ejemplo. Al
+              confirmarlo cada mes se le aplica la cotización de ese mes. */}
+          <div className="flex gap-0.5 rounded-lg bg-slate-900/60 p-0.5">
+            {[ARS, USD].map((m) => (
+              <button
+                key={m}
+                onClick={() => setMoneda(m)}
+                className={`rounded-md px-1.5 py-1 text-xs font-bold ${
+                  moneda === m ? 'bg-slate-700 text-white' : 'text-slate-500'
+                }`}
+              >
+                {MONEDAS[m].corto}
+              </button>
+            ))}
+          </div>
           <input
             value={monto}
             inputMode="decimal"
@@ -199,6 +214,7 @@ function FormularioFijo({ onGuardar, onCancelar }) {
           onGuardar({
             tipo,
             monto: montoNum,
+            moneda,
             categoria,
             subcategoria,
             metodo,

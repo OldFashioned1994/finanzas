@@ -1,5 +1,5 @@
 import { TINTA, FLUJO } from '../../utils/paleta'
-import { formatCorto } from '../../utils/format'
+import { formatCortoEn, ARS } from '../../utils/moneda'
 
 // Evolución mensual como barras divergentes desde el cero: los ingresos suben,
 // los gastos bajan. La identidad de cada serie la lleva la POSICIÓN respecto de
@@ -12,7 +12,8 @@ const H = 150
 const PAD_SUP = 10
 const PAD_INF = 20
 
-export default function EvolucionMeses({ serie, mesActivo, onSelect }) {
+export default function EvolucionMeses({ serie, mesActivo, onSelect, moneda = ARS }) {
+  const formatCorto = (n) => formatCortoEn(n, moneda)
   const max = Math.max(...serie.map((s) => Math.max(s.gastos, s.ingresos)), 1)
   const alto = H - PAD_SUP - PAD_INF
   const maxIngreso = Math.max(...serie.map((s) => s.ingresos), 0)

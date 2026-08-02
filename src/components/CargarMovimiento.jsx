@@ -9,23 +9,30 @@ import {
   Zap,
   CalendarDays,
   X,
+  ArrowLeftRight,
 } from 'lucide-react'
 import { agregarMovimiento, actualizarMovimiento, borrarMovimiento } from '../db'
 import { useDatos, useCategoriasDe, useMetodosDe, useIconos } from '../state/datos'
 import { hoyISO, formatFecha } from '../utils/format'
 import { combosFrecuentes, defaultsDeCategoria, rankingUso } from '../utils/calc'
+import { ARS, USD, MONEDAS, formatRedondoEn } from '../utils/moneda'
+import { parseMonto, limpiarInputMonto } from '../utils/monto'
 import * as C from '../utils/calculadora'
 import Numpad from './Numpad'
 import Chip from './Chip'
 
 export default function CargarMovimiento({ editando, plantilla, onGuardado, onCancelarEdicion }) {
-  const { movimientos, ajustes } = useDatos()
+  const { movimientos, ajustes, conversor } = useDatos()
   const icono = useIconos()
   const esEdicion = Boolean(editando)
 
   const [tipo, setTipo] = useState('gasto')
   const [fecha, setFecha] = useState(hoyISO())
   const [calc, setCalc] = useState(C.estadoInicialCalc)
+  const [moneda, setMoneda] = useState(ARS)
+  // Cotización de este movimiento, como texto (se tipea a mano).
+  const [tc, setTc] = useState('')
+  const [mostrarTc, setMostrarTc] = useState(false)
   const [categoria, setCategoria] = useState('')
   const [subcategoria, setSubcategoria] = useState('')
   const [metodo, setMetodo] = useState('')
@@ -73,6 +80,9 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setMetodo(editando.metodo)
     setDescripcion(editando.descripcion || '')
     setMostrarNota(Boolean(editando.descripcion))
+    setMoneda(editando.moneda === USD ? USD : ARS)
+    setTc(editando.tc ? String(editando.tc).replace('.', ',') : '')
+    setMostrarTc(Boolean(editando.tc))
     tocado.current = { sub: true, metodo: true }
   }, [editando])
 
@@ -88,6 +98,10 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setMetodo(plantilla.metodo)
     setDescripcion(plantilla.descripcion || '')
     setMostrarNota(Boolean(plantilla.descripcion))
+    setMoneda(plantilla.moneda === USD ? USD : ARS)
+    // La cotización NO se copia: el dólar de hace un mes no es el de hoy.
+    setTc('')
+    setMostrarTc(plantilla.moneda === USD)
     tocado.current = { sub: true, metodo: true }
   }, [plantilla])
 
@@ -124,6 +138,8 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setCategoria(combo.categoria)
     setSubcategoria(combo.subcategoria)
     setMetodo(combo.metodo)
+    const met = metodos.find((m) => m.nombre === combo.metodo)
+    if (met?.moneda && met.moneda !== moneda) cambiarMoneda(met.moneda)
     tocado.current = { sub: true, metodo: true }
   }
 
@@ -132,14 +148,58 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setSubcategoria(s)
   }
 
+  // Elegir un método con moneda propia (ej: "Efectivo USD") cambia solo la
+  // moneda del monto: si pagás de la caja de dólares, el gasto es en dólares.
   const elegirMetodo = (m) => {
     tocado.current.metodo = true
-    setMetodo(m)
+    setMetodo(m.nombre)
+    if (m.moneda && m.moneda !== moneda) cambiarMoneda(m.moneda)
+  }
+
+  const cambiarMoneda = (nueva) => {
+    setMoneda(nueva)
+    if (nueva === USD) {
+      setMostrarTc(true)
+      // Se precarga la última cotización conocida; siempre se puede pisar.
+      if (!tc) {
+        const sugerida = conversor.sugerida(fecha.slice(0, 7))
+        if (sugerida > 0) setTc(String(sugerida).replace('.', ','))
+      }
+    } else {
+      // Un gasto en pesos por defecto no lleva cotización. El número tipeado se
+      // conserva por si volvés a activarla, pero deja de aplicarse.
+      setMostrarTc(false)
+    }
+  }
+
+  const activarTc = () => {
+    setMostrarTc(true)
+    if (!tc) {
+      const sugerida = conversor.sugerida(fecha.slice(0, 7))
+      if (sugerida > 0) setTc(String(sugerida).replace('.', ','))
+    }
   }
 
   const monto = C.valorCalc(calc)
-  const completo = Number.isFinite(monto) && monto > 0 && categoria && subcategoria && metodo
+  const tcNum = parseMonto(tc)
+  // La cotización solo cuenta si está visible: si la ocultaste, no se guarda
+  // aunque el número siga escrito.
+  const tcValido = mostrarTc && Number.isFinite(tcNum) && tcNum > 0
+  const esUSD = moneda === USD
+  const montoValido = Number.isFinite(monto) && monto > 0
+  // En dólares la cotización es obligatoria: sin ella el movimiento no se podría
+  // comparar con nada de lo que está en pesos.
+  const completo =
+    montoValido && categoria && subcategoria && metodo && (!esUSD || tcValido)
   const pendiente = C.hayPendiente(calc)
+
+  // Equivalente en la otra moneda, para verlo mientras se carga.
+  const equivalente =
+    montoValido && tcValido
+      ? esUSD
+        ? formatRedondoEn(monto * tcNum, ARS)
+        : formatRedondoEn(monto / tcNum, USD)
+      : null
 
   const resetear = (nuevoTipo = tipo) => {
     setCalc(C.limpiar())
@@ -150,6 +210,8 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setMostrarNota(false)
     setFecha(hoyISO())
     setTipo(nuevoTipo)
+    // La moneda y la cotización se conservan: si estás cargando gastos en
+    // dólares, lo más probable es que el próximo también lo sea.
     tocado.current = { sub: false, metodo: false }
   }
 
@@ -165,6 +227,9 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
       fecha,
       tipo,
       monto: Math.round(monto * 100) / 100,
+      moneda,
+      // La cotización se guarda con el movimiento y queda congelada ahí.
+      tc: tcValido ? tcNum : null,
       categoria,
       subcategoria,
       metodo,
@@ -179,7 +244,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
 
     const id = await agregarMovimiento(datos)
     onGuardado?.({
-      msg: `Guardado · ${datos.subcategoria}`,
+      msg: `Guardado · ${datos.subcategoria}${esUSD ? ' (US$)' : ''}`,
       tone: 'ok',
       // Deshacer: si te equivocaste de tecla, un toque y no pasó nada.
       undo: () => borrarMovimiento(id),
@@ -245,13 +310,29 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
             esGasto ? 'border-rose-500/25' : 'border-emerald-500/25'
           }`}
         >
-          <div className="flex h-4 items-center justify-end">
+          <div className="flex h-7 items-center justify-between gap-2">
+            {/* Moneda del movimiento */}
+            <div className="flex gap-0.5 rounded-xl bg-slate-800/80 p-0.5">
+              {[ARS, USD].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => cambiarMoneda(m)}
+                  className={`min-w-9 rounded-lg px-2 py-1 text-xs font-bold transition-colors ${
+                    moneda === m ? 'bg-slate-600 text-white' : 'text-slate-400'
+                  }`}
+                >
+                  {MONEDAS[m].corto}
+                </button>
+              ))}
+            </div>
             {expresion && (
               <span className="text-sm font-medium text-slate-500 tabular-nums">{expresion}</span>
             )}
           </div>
+
           <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-light text-slate-500">$</span>
+            <span className="text-3xl font-light text-slate-500">{MONEDAS[moneda].simbolo}</span>
             <span
               className={`min-w-0 flex-1 truncate text-right text-[2.6rem] font-bold leading-tight tracking-tight tabular-nums ${
                 display ? 'text-slate-50' : 'text-slate-700'
@@ -261,7 +342,59 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
             </span>
           </div>
 
-          <div className="mt-2 flex items-center justify-end gap-1.5 border-t border-white/5 pt-2">
+          {/* Cotización: obligatoria en dólares, opcional en pesos para el caso
+              "lo pagué en pesos pero me lo cobraron en dólares". */}
+          {mostrarTc ? (
+            <div className="mt-2 flex items-center gap-2 border-t border-white/5 pt-2">
+              <label className="shrink-0 text-xs font-medium text-slate-400">Cotización</label>
+              <div className="flex min-h-9 items-center rounded-xl bg-slate-800/80 px-2">
+                <span className="text-xs text-slate-500">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={tc}
+                  onChange={(e) => setTc(limpiarInputMonto(e.target.value))}
+                  placeholder="1310"
+                  className="w-20 bg-transparent px-1 text-base font-semibold tabular-nums text-slate-100 outline-none placeholder:text-slate-600"
+                  aria-label="Cotización del dólar"
+                />
+              </div>
+              {equivalente ? (
+                <span className="min-w-0 flex-1 truncate text-right text-sm font-semibold text-indigo-300 tabular-nums">
+                  = {equivalente}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-right text-xs text-slate-500">
+                  {esUSD ? 'Poné a cuánto está el dólar' : 'pesos por dólar'}
+                </span>
+              )}
+              {!esUSD && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarTc(false)
+                    setTc('')
+                  }}
+                  className="shrink-0 text-slate-500 active:text-slate-300"
+                  aria-label="Quitar cotización"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-white/5 pt-2">
+              <button
+                type="button"
+                onClick={activarTc}
+                className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs font-medium text-slate-500 active:text-indigo-300"
+              >
+                <ArrowLeftRight size={13} /> Me lo cobraron en dólares
+              </button>
+            </div>
+          )}
+
+          <div className="mt-1.5 flex items-center justify-end gap-1.5">
             <ChipFecha activo={esHoy} onClick={() => setFecha(hoyISO())}>
               Hoy
             </ChipFecha>
@@ -369,11 +502,11 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
             {metodosOrdenados.map((m) => (
               <Chip
                 key={m.id}
-                label={m.nombre}
+                label={m.moneda === USD ? `${m.nombre} · US$` : m.nombre}
                 icono={m.emoji}
                 tone={tipo}
                 selected={metodo === m.nombre}
-                onClick={() => elegirMetodo(m.nombre)}
+                onClick={() => elegirMetodo(m)}
               />
             ))}
           </div>

@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   Sparkles,
   ShieldCheck,
+  CircleDollarSign,
 } from 'lucide-react'
 import { useDatos } from '../state/datos'
 import { setAjuste } from '../db'
@@ -21,9 +22,11 @@ import EditorCategorias from './ajustes/EditorCategorias'
 import EditorMetodos from './ajustes/EditorMetodos'
 import EditorPresupuestos from './ajustes/EditorPresupuestos'
 import EditorFijos from './ajustes/EditorFijos'
+import EditorDolar from './ajustes/EditorDolar'
 
 export default function Ajustes({ onToast }) {
-  const { movimientos, categorias, fijos, presupuestos, ajustes } = useDatos()
+  const { movimientos, categorias, fijos, presupuestos, ajustes, cotizaciones, conversor } =
+    useDatos()
   const [abierta, setAbierta] = useState(null)
 
   const toggle = (id) => setAbierta(abierta === id ? null : id)
@@ -50,6 +53,21 @@ export default function Ajustes({ onToast }) {
         onToggle={toggle}
       >
         <EditorFijos onToast={onToast} />
+      </Seccion>
+
+      <Seccion
+        id="dolar"
+        titulo="Dólar"
+        detalle={
+          cotizaciones.length
+            ? `${cotizaciones.length} cotizacion${cotizaciones.length === 1 ? '' : 'es'} cargadas`
+            : 'sin cotizaciones'
+        }
+        Icon={CircleDollarSign}
+        abierta={abierta === 'dolar'}
+        onToggle={toggle}
+      >
+        <EditorDolar onToast={onToast} />
       </Seccion>
 
       <Seccion
@@ -81,7 +99,7 @@ export default function Ajustes({ onToast }) {
         abierta={abierta === 'datos'}
         onToggle={toggle}
       >
-        <PanelDatos movimientos={movimientos} onToast={onToast} />
+        <PanelDatos movimientos={movimientos} onToast={onToast} conversor={conversor} />
       </Seccion>
 
       <Seccion
@@ -106,7 +124,7 @@ export default function Ajustes({ onToast }) {
   )
 }
 
-function PanelDatos({ movimientos, onToast }) {
+function PanelDatos({ movimientos, onToast, conversor }) {
   const inputRef = useRef(null)
   const [modo, setModo] = useState('fusionar')
   const [ocupado, setOcupado] = useState(false)
@@ -116,7 +134,7 @@ function PanelDatos({ movimientos, onToast }) {
       onToast?.({ msg: 'No hay movimientos para exportar', tone: 'info' })
       return
     }
-    await exportarXlsx(movimientos)
+    await exportarXlsx(movimientos, conversor)
     onToast?.({ msg: `Exportados ${movimientos.length} movimientos`, tone: 'ok' })
   }
 
