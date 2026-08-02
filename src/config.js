@@ -16,6 +16,74 @@
 //    metodos    = ["Método 1", "Método 2", ...]
 // ============================================================================
 
+// ============================================================================
+//  GRUPOS (el nivel de arriba de las categorías)
+//  ----------------------------------------------------------------------------
+//  Estructura de tres capas, la misma que usan YNAB y Monarch:
+//      tipo (gasto/ingreso) → GRUPO (Vivienda) → categoría (Servicios) →
+//      subcategoría (LUZ)
+//
+//  Los grupos siguen la lógica de la COICOP Argentina 2019, el clasificador que
+//  usa el INDEC para la Encuesta Nacional de Gastos de los Hogares: agrupar el
+//  gasto por LA NECESIDAD QUE SATISFACE. Se adaptaron sus 12 divisiones a las
+//  categorías que se usan acá, sin dejar grupos vacíos.
+//
+//  `naturaleza` separa lo imprescindible de lo que es elección, que es la otra
+//  forma habitual de mirar un presupuesto (la regla 50/30/20):
+//      esencial · disfrute · otros
+// ============================================================================
+
+export const GRUPOS = {
+  gasto: [
+    { nombre: 'Vivienda', emoji: '🏠' },
+    { nombre: 'Alimentación', emoji: '🍔' },
+    { nombre: 'Transporte', emoji: '🚕' },
+    { nombre: 'Salud y cuidado', emoji: '💊' },
+    { nombre: 'Ocio y estilo de vida', emoji: '🎬' },
+    { nombre: 'Educación', emoji: '📚' },
+    { nombre: 'Finanzas y varios', emoji: '🏦' },
+  ],
+  ingreso: [
+    { nombre: 'Trabajo', emoji: '💼' },
+    { nombre: 'Rentas', emoji: '📈' },
+    { nombre: 'Otros ingresos', emoji: '✨' },
+  ],
+}
+
+// A qué grupo va cada categoría de la semilla, y de qué naturaleza es.
+// Lo que no figure acá cae en el último grupo del tipo.
+export const CLASIFICACION = {
+  // ------------------------------- GASTOS ----------------------------------
+  'Vivienda': { grupo: 'Vivienda', naturaleza: 'esencial' },
+  'Servicios': { grupo: 'Vivienda', naturaleza: 'esencial' },
+  'Hogar': { grupo: 'Vivienda', naturaleza: 'esencial' },
+  'Equipamiento': { grupo: 'Vivienda', naturaleza: 'disfrute' },
+  'Alimentación': { grupo: 'Alimentación', naturaleza: 'esencial' },
+  'Transporte': { grupo: 'Transporte', naturaleza: 'esencial' },
+  'Salud': { grupo: 'Salud y cuidado', naturaleza: 'esencial' },
+  'Cuidado personal': { grupo: 'Salud y cuidado', naturaleza: 'disfrute' },
+  'Ocio y entretenimiento': { grupo: 'Ocio y estilo de vida', naturaleza: 'disfrute' },
+  'Regalos y eventos': { grupo: 'Ocio y estilo de vida', naturaleza: 'disfrute' },
+  'Educación': { grupo: 'Educación', naturaleza: 'esencial' },
+  'Servicios financieros': { grupo: 'Finanzas y varios', naturaleza: 'otros' },
+  'Imprevistos/varios': { grupo: 'Finanzas y varios', naturaleza: 'otros' },
+  // ------------------------------ INGRESOS ---------------------------------
+  'Sueldo': { grupo: 'Trabajo' },
+  'Trabajo independiente': { grupo: 'Trabajo' },
+  'Ventas': { grupo: 'Trabajo' },
+  'Inversiones': { grupo: 'Rentas' },
+  'Reintegros': { grupo: 'Otros ingresos' },
+  'Otros': { grupo: 'Otros ingresos' },
+}
+
+// Las descripciones son cortas a propósito: van al lado del nombre en una fila
+// del panel, en pantalla de teléfono.
+export const NATURALEZAS = {
+  esencial: { nombre: 'Esencial', descripcion: 'no se puede evitar' },
+  disfrute: { nombre: 'Disfrute', descripcion: 'lo elegís vos' },
+  otros: { nombre: 'Otros', descripcion: 'banco, imprevistos' },
+}
+
 export const CONFIG = {
   // -------------------------------- GASTOS ---------------------------------
   gasto: {

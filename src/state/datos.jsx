@@ -14,6 +14,7 @@ const DatosContext = createContext(null)
 export function DatosProvider({ children }) {
   const movimientos = useLiveQuery(() => db.movimientos.toArray(), [], undefined)
   const categorias = useLiveQuery(() => db.categorias.toArray(), [], undefined)
+  const grupos = useLiveQuery(() => db.grupos.toArray(), [], undefined)
   const metodos = useLiveQuery(() => db.metodos.toArray(), [], undefined)
   const presupuestos = useLiveQuery(() => db.presupuestos.toArray(), [], undefined)
   const fijos = useLiveQuery(() => db.fijos.toArray(), [], undefined)
@@ -27,6 +28,7 @@ export function DatosProvider({ children }) {
       cargando: movimientos === undefined || categorias === undefined,
       movimientos: movimientos ?? [],
       categorias: ordenar(categorias),
+      grupos: ordenar(grupos),
       metodos: ordenar(metodos),
       presupuestos: presupuestos ?? [],
       fijos: fijos ?? [],
@@ -36,7 +38,7 @@ export function DatosProvider({ children }) {
       // que se muestre en la otra moneda se recalcula solo.
       conversor: crearConversor(cotizaciones ?? [], Number(prefs.tcReferencia) || 0),
     }
-  }, [movimientos, categorias, metodos, presupuestos, fijos, ajustes, cotizaciones])
+  }, [movimientos, categorias, grupos, metodos, presupuestos, fijos, ajustes, cotizaciones])
 
   return <DatosContext.Provider value={valor}>{children}</DatosContext.Provider>
 }
@@ -64,11 +66,17 @@ export function useMetodosDe(tipo) {
 
 // Emoji por nombre, mirando primero la taxonomía viva y después la config.
 export function useIconos() {
-  const { categorias, metodos } = useDatos()
+  const { categorias, metodos, grupos } = useDatos()
   return useMemo(() => {
     const mapa = new Map()
     for (const c of categorias) mapa.set(c.nombre, c.emoji || '📌')
+    for (const g of grupos) if (!mapa.has(g.nombre)) mapa.set(g.nombre, g.emoji || '📦')
     for (const m of metodos) if (!mapa.has(m.nombre)) mapa.set(m.nombre, m.emoji || '💳')
     return (nombre) => mapa.get(nombre) ?? '📌'
-  }, [categorias, metodos])
+  }, [categorias, grupos, metodos])
+}
+
+export function useGruposDe(tipo) {
+  const { grupos } = useDatos()
+  return useMemo(() => grupos.filter((g) => g.tipo === tipo), [grupos, tipo])
 }

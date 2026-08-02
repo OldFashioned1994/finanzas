@@ -1,5 +1,5 @@
 import Dexie from 'dexie'
-import { CONFIG, ICONOS } from './config'
+import { CONFIG, ICONOS, GRUPOS, CLASIFICACION } from './config'
 
 // ============================================================================
 //  Base de datos local (IndexedDB) vía Dexie. Sin backend, sin nube, sin login.
@@ -25,8 +25,13 @@ import { CONFIG, ICONOS } from './config'
 //    fijoId       number   opcional, si nació de un gasto fijo
 //    createdAt    number   timestamp ms, interno (NO se exporta)
 //
+//  grupos        el nivel de arriba de las categorías (Vivienda, Transporte…)
+//    id, tipo, nombre, emoji, orden
+//
 //  categorias    taxonomía editable desde Ajustes (semilla: config.js)
 //    id, tipo, nombre, emoji, orden, archivada, subcategorias: string[]
+//    grupo        string  nombre del grupo al que pertenece
+//    naturaleza   'esencial' | 'disfrute' | 'otros' (solo gastos)
 //
 //  metodos       medios de pago / dónde entró la plata
 //    id, tipo, nombre, emoji, orden, archivado
@@ -89,6 +94,31 @@ db.version(3)
       })
   })
 
+db.version(4)
+  .stores({
+    grupos: '++id, tipo, nombre, orden',
+    categorias: '++id, tipo, nombre, orden, grupo',
+  })
+  .upgrade(async (tx) => {
+    await sembrarGrupos(tx)
+    // Cada categoría que ya existía se asigna a su grupo según la tabla de
+    // clasificación. Lo que no figure ahí (categorías propias del usuario) va al
+    // último grupo del tipo, que es el cajón de "varios": nada queda sin grupo.
+    const grupos = await tx.table('grupos').toArray()
+    const ultimoDe = (tipo) => {
+      const delTipo = grupos.filter((g) => g.tipo === tipo).sort((a, b) => a.orden - b.orden)
+      return delTipo[delTipo.length - 1]?.nombre ?? ''
+    }
+    await tx
+      .table('categorias')
+      .toCollection()
+      .modify((c) => {
+        const clas = CLASIFICACION[c.nombre]
+        c.grupo = clas?.grupo ?? ultimoDe(c.tipo)
+        c.naturaleza = c.tipo === 'gasto' ? (clas?.naturaleza ?? 'otros') : null
+      })
+  })
+
 // Instalación nueva: no hay upgrade que correr, así que sembramos acá.
 db.on('populate', (tx) => sembrarTaxonomia(tx))
 
@@ -96,15 +126,29 @@ db.on('populate', (tx) => sembrarTaxonomia(tx))
 //  Semilla de la taxonomía
 // ---------------------------------------------------------------------------
 
+async function sembrarGrupos(tx) {
+  const filas = []
+  for (const tipo of ['gasto', 'ingreso']) {
+    ;(GRUPOS[tipo] ?? []).forEach((g, i) => {
+      filas.push({ tipo, nombre: g.nombre, emoji: g.emoji, orden: i })
+    })
+  }
+  await tx.table('grupos').bulkAdd(filas)
+}
+
 async function sembrarTaxonomia(tx) {
+  await sembrarGrupos(tx)
+
   const categorias = []
   const metodos = []
 
   for (const tipo of ['gasto', 'ingreso']) {
     const cfg = CONFIG[tipo]
     if (!cfg) continue
+    const ultimoGrupo = (GRUPOS[tipo] ?? []).at(-1)?.nombre ?? ''
 
     Object.entries(cfg.categorias ?? {}).forEach(([nombre, subs], i) => {
+      const clas = CLASIFICACION[nombre]
       categorias.push({
         tipo,
         nombre,
@@ -112,6 +156,8 @@ async function sembrarTaxonomia(tx) {
         orden: i,
         archivada: false,
         subcategorias: [...subs],
+        grupo: clas?.grupo ?? ultimoGrupo,
+        naturaleza: tipo === 'gasto' ? (clas?.naturaleza ?? 'otros') : null,
       })
     })
 
@@ -172,6 +218,11 @@ async function absorberDeMovimientos(tx, movs) {
 
   if (nuevasCats.size) {
     let orden = cats.length
+    const grupos = await tx.table('grupos').toArray()
+    const ultimoDe = (tipo) => {
+      const delTipo = grupos.filter((g) => g.tipo === tipo).sort((a, b) => a.orden - b.orden)
+      return delTipo[delTipo.length - 1]?.nombre ?? ''
+    }
     await tx.table('categorias').bulkAdd(
       [...nuevasCats.values()].map((c) => ({
         tipo: c.tipo,
@@ -180,6 +231,8 @@ async function absorberDeMovimientos(tx, movs) {
         orden: orden++,
         archivada: false,
         subcategorias: [...c.subs],
+        grupo: CLASIFICACION[c.nombre]?.grupo ?? ultimoDe(c.tipo),
+        naturaleza: c.tipo === 'gasto' ? (CLASIFICACION[c.nombre]?.naturaleza ?? 'otros') : null,
       })),
     )
   }
@@ -218,8 +271,17 @@ export async function borrarMovimiento(id) {
 //  Categorías
 // ---------------------------------------------------------------------------
 
-export async function agregarCategoria({ tipo, nombre, emoji, subcategorias = [] }) {
+export async function agregarCategoria({
+  tipo,
+  nombre,
+  emoji,
+  subcategorias = [],
+  grupo,
+  naturaleza,
+}) {
   const orden = await db.categorias.where('tipo').equals(tipo).count()
+  // Sin grupo elegido, cae en el último del tipo (el cajón de "varios").
+  const grupos = await db.grupos.where('tipo').equals(tipo).sortBy('orden')
   return db.categorias.add({
     tipo,
     nombre: nombre.trim(),
@@ -227,6 +289,69 @@ export async function agregarCategoria({ tipo, nombre, emoji, subcategorias = []
     orden,
     archivada: false,
     subcategorias,
+    grupo: grupo ?? grupos.at(-1)?.nombre ?? '',
+    naturaleza: tipo === 'gasto' ? (naturaleza ?? 'otros') : null,
+  })
+}
+
+// ---------------------------------------------------------------------------
+//  Grupos (el nivel de arriba de las categorías)
+// ---------------------------------------------------------------------------
+
+export async function agregarGrupo({ tipo, nombre, emoji }) {
+  const orden = await db.grupos.where('tipo').equals(tipo).count()
+  return db.grupos.add({ tipo, nombre: nombre.trim(), emoji: emoji || '📦', orden })
+}
+
+// Renombrar un grupo arrastra las categorías que lo tienen asignado.
+export async function renombrarGrupo(id, nuevoNombre) {
+  const nombre = nuevoNombre.trim()
+  const grupo = await db.grupos.get(id)
+  if (!grupo || !nombre || nombre === grupo.nombre) return 0
+
+  const chocado = await db.grupos
+    .where('tipo')
+    .equals(grupo.tipo)
+    .filter((g) => g.id !== id && g.nombre.toLowerCase() === nombre.toLowerCase())
+    .first()
+  if (chocado) return -1
+
+  return db.transaction('rw', db.grupos, db.categorias, async () => {
+    await db.grupos.update(id, { nombre })
+    return db.categorias
+      .where('grupo')
+      .equals(grupo.nombre)
+      .filter((c) => c.tipo === grupo.tipo)
+      .modify({ grupo: nombre })
+  })
+}
+
+export async function actualizarGrupo(id, cambios) {
+  return db.grupos.update(id, cambios)
+}
+
+// Al borrar un grupo, sus categorías se mudan a otro: ninguna queda huérfana.
+export async function borrarGrupo(id) {
+  const grupo = await db.grupos.get(id)
+  if (!grupo) return { borrado: false, mudadas: 0 }
+  const hermanos = await db.grupos.where('tipo').equals(grupo.tipo).sortBy('orden')
+  const destino = hermanos.find((g) => g.id !== id)
+  if (!destino) return { borrado: false, mudadas: 0, ultimo: true }
+
+  return db.transaction('rw', db.grupos, db.categorias, async () => {
+    const mudadas = await db.categorias
+      .where('grupo')
+      .equals(grupo.nombre)
+      .filter((c) => c.tipo === grupo.tipo)
+      .modify({ grupo: destino.nombre })
+    await db.grupos.delete(id)
+    return { borrado: true, mudadas, destino: destino.nombre }
+  })
+}
+
+export async function reordenarGrupos(ids) {
+  return db.transaction('rw', db.grupos, async () => {
+    for (let i = 0; i < ids.length; i++) await db.grupos.update(ids[i], { orden: i })
   })
 }
 

@@ -22,14 +22,16 @@ import {
   quitarSubcategoria,
   reordenarCategorias,
 } from '../../db'
+import { NATURALEZAS } from '../../config'
 
 export default function EditorCategorias({ onToast }) {
-  const { categorias, movimientos } = useDatos()
+  const { categorias, movimientos, grupos } = useDatos()
   const [tipo, setTipo] = useState('gasto')
   const [abierta, setAbierta] = useState(null)
   const [nueva, setNueva] = useState('')
 
   const delTipo = categorias.filter((c) => c.tipo === tipo)
+  const gruposDelTipo = grupos.filter((g) => g.tipo === tipo)
 
   const usos = (nombre) =>
     movimientos.filter((m) => m.categoria === nombre && m.tipo === tipo).length
@@ -143,6 +145,49 @@ export default function EditorCategorias({ onToast }) {
                   placeholder="Nueva subcategoría"
                   onAgregar={(v) => agregarSubcategoria(cat.id, v)}
                 />
+
+                {/* A qué grupo pertenece y de qué naturaleza es: los dos
+                    campos que alimentan la lectura gruesa del panel. */}
+                <div className="grid grid-cols-2 gap-2 border-t border-white/5 pt-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-400">Grupo</span>
+                    <select
+                      value={cat.grupo ?? ''}
+                      onChange={(e) => actualizarCategoria(cat.id, { grupo: e.target.value })}
+                      className="min-h-10 w-full rounded-xl border border-slate-700/70 bg-slate-800/60 px-2 text-sm text-slate-100 outline-none focus:border-indigo-500"
+                    >
+                      {gruposDelTipo.map((g) => (
+                        <option key={g.id} value={g.nombre}>
+                          {g.emoji} {g.nombre}
+                        </option>
+                      ))}
+                      {cat.grupo && !gruposDelTipo.some((g) => g.nombre === cat.grupo) && (
+                        <option value={cat.grupo}>{cat.grupo}</option>
+                      )}
+                    </select>
+                  </label>
+
+                  {tipo === 'gasto' && (
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-400">
+                        Naturaleza
+                      </span>
+                      <select
+                        value={cat.naturaleza ?? 'otros'}
+                        onChange={(e) =>
+                          actualizarCategoria(cat.id, { naturaleza: e.target.value })
+                        }
+                        className="min-h-10 w-full rounded-xl border border-slate-700/70 bg-slate-800/60 px-2 text-sm text-slate-100 outline-none focus:border-indigo-500"
+                      >
+                        {Object.entries(NATURALEZAS).map(([clave, n]) => (
+                          <option key={clave} value={clave}>
+                            {n.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
 
                 <div className="flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-2">
                   <BotonChico onClick={() => mover(i, -1)} disabled={i === 0} Icon={ArrowUp}>

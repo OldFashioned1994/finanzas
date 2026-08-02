@@ -54,3 +54,15 @@ export const ESTADO = {
 export function colorDeCategoria(indice) {
   return SERIES[indice % SERIES.length]
 }
+
+// Variante más clara del color de un grupo, para las categorías que contiene:
+// se ve que pertenecen a la misma familia sin competir con el color del grupo.
+// Aclarar sobre fondo oscuro sube el contraste, así que no rompe la validación.
+export function aclarar(hex, factor = 0.25) {
+  const n = parseInt(hex.slice(1), 16)
+  const mezclar = (c) => Math.round(c + (255 - c) * factor)
+  const r = mezclar((n >> 16) & 255)
+  const g = mezclar((n >> 8) & 255)
+  const b = mezclar(n & 255)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}

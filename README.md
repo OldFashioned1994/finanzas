@@ -50,13 +50,43 @@ El tablero de control. Se mueve por período (mes a mes, 3 meses, año, todo):
   del mes pasado, no contra el mes entero.
 - **Ritmo de gasto**: cuánto llevás acumulado día a día contra la curva del mes
   anterior, con promedio diario y cierre estimado.
-- **En qué se va la plata**: anillo con el peso de cada categoría en porcentaje.
-- **Detalle por categoría**: ranking con barras, variación vs. el período anterior
-  y desglose por subcategoría al tocar cada una.
+- **En qué se va la plata**: anillo con el peso de cada **grupo** en porcentaje
+  (Vivienda, Alimentación, Transporte…), con un botón para pasar al detalle por
+  categoría.
+- **Cuánto es elección tuya**: qué parte del gasto es esencial, cuál es disfrute
+  y cuál es otra cosa. Es la lectura de la regla 50/30/20.
+- **Detalle por grupo**: ranking con barras, variación vs. el período anterior y
+  desglose al tocar cada uno (grupo → categorías → subcategorías).
 - **Presupuestos** del mes con semáforo.
 - **Últimos 12 meses**: ingresos y gastos como barras divergentes desde el cero
   (tocá un mes para saltar a él).
 - **Con qué pagaste** y **gastos más grandes** del período.
+
+### Grupos, categorías y subcategorías
+
+La app tiene tres niveles, igual que YNAB y Monarch:
+**grupo → categoría → subcategoría**. Por ejemplo:
+`Vivienda → Servicios → LUZ`.
+
+Los grupos que trae por defecto siguen la lógica de la **COICOP Argentina 2019**,
+el clasificador que usa el INDEC para la Encuesta Nacional de Gastos de los
+Hogares: agrupar el gasto por *la necesidad que satisface*.
+
+| Grupo | Categorías |
+|---|---|
+| 🏠 Vivienda | Vivienda · Servicios · Hogar · Equipamiento |
+| 🍔 Alimentación | Alimentación |
+| 🚕 Transporte | Transporte |
+| 💊 Salud y cuidado | Salud · Cuidado personal |
+| 🎬 Ocio y estilo de vida | Ocio y entretenimiento · Regalos y eventos |
+| 📚 Educación | Educación |
+| 🏦 Finanzas y varios | Servicios financieros · Imprevistos |
+
+En ingresos: Trabajo, Rentas y Otros ingresos.
+
+Además, cada categoría de gasto tiene una **naturaleza** (esencial, disfrute u
+otros) que alimenta la tarjeta *"Cuánto es elección tuya"*. Todo esto se edita
+desde Ajustes → Grupos y Ajustes → Categorías.
 
 ### Movimientos
 
@@ -88,6 +118,8 @@ La app maneja pesos y dólares, con **cotización manual**: el número lo ponés
 
 ### Ajustes
 
+- **Grupos**: crear, renombrar, reordenar (el orden define el color en el panel).
+  Al borrar un grupo sus categorías se mudan, no quedan sueltas.
 - **Dólar**: cotización de referencia y una por mes, para poder leer el histórico
   en dólares.
 - **Presupuestos** mensuales por categoría, con sugerencia basada en tu promedio
@@ -116,11 +148,12 @@ estando en la misma Wi-Fi.
 
 ## Notas técnicas
 
-- **Datos**: Dexie sobre IndexedDB, esquema v3 (`movimientos`, `categorias`,
-  `metodos`, `presupuestos`, `fijos`, `cotizaciones`, `ajustes`). La migración
-  desde v1 conserva los movimientos y rescata categorías o métodos que existan en
-  el historial y no estén en la semilla; la de v3 marca como pesos todo lo que ya
-  estaba cargado, sin tocar un monto.
+- **Datos**: Dexie sobre IndexedDB, esquema v4 (`movimientos`, `categorias`,
+  `grupos`, `metodos`, `presupuestos`, `fijos`, `cotizaciones`, `ajustes`). Las
+  migraciones nunca tocan un monto: la de v2 rescata categorías o métodos que
+  existan en el historial y no estén en la semilla, la de v3 marca como pesos lo
+  ya cargado, y la de v4 asigna cada categoría a su grupo (lo que no encaje va al
+  grupo de varios, nunca se pierde).
 - [`src/config.js`](src/config.js) es **solo la semilla** de la primera ejecución.
   El día a día se edita desde Ajustes.
 - **Gráficos**: SVG propio, sin librería (Recharts pesaba más que toda la app). La

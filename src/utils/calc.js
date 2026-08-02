@@ -223,6 +223,88 @@ export function porCategoria(movs, tipo = 'gasto', movsPrevios = null) {
     .sort((a, b) => b.total - a.total)
 }
 
+// Gastos agrupados por GRUPO (Vivienda, Transporte…), el nivel de arriba de las
+// categorías. Es la vista que responde "¿qué porcentaje se me va en vivienda?"
+// sin tener que sumar alquiler + expensas + luz + internet a mano.
+//
+// `categorias` es la taxonomía viva: de ahí sale a qué grupo pertenece cada una.
+// Una categoría que ya no exista en la taxonomía (se borró, pero su historial
+// sigue) cae en "Sin grupo" en vez de desaparecer del total.
+export function porGrupo(movs, tipo = 'gasto', categorias = [], movsPrevios = null) {
+  const grupoDe = new Map(
+    categorias.filter((c) => c.tipo === tipo).map((c) => [c.nombre, c.grupo || 'Sin grupo']),
+  )
+  const resolver = (nombre) => grupoDe.get(nombre) ?? 'Sin grupo'
+
+  const filtrados = movs.filter((m) => m.tipo === tipo)
+  const total = filtrados.reduce((s, m) => s + m.monto, 0)
+
+  const mapa = new Map()
+  for (const m of filtrados) {
+    const g = resolver(m.categoria)
+    if (!mapa.has(g)) mapa.set(g, { nombre: g, total: 0, cantidad: 0, cats: new Map() })
+    const e = mapa.get(g)
+    e.total += m.monto
+    e.cantidad++
+    const cat = m.categoria || 'Sin categoría'
+    e.cats.set(cat, (e.cats.get(cat) ?? 0) + m.monto)
+  }
+
+  let previos = null
+  if (movsPrevios) {
+    previos = new Map()
+    for (const m of movsPrevios) {
+      if (m.tipo !== tipo) continue
+      const g = resolver(m.categoria)
+      previos.set(g, (previos.get(g) ?? 0) + m.monto)
+    }
+  }
+
+  return [...mapa.values()]
+    .map((e) => ({
+      nombre: e.nombre,
+      total: e.total,
+      cantidad: e.cantidad,
+      pct: total > 0 ? e.total / total : 0,
+      anterior: previos ? (previos.get(e.nombre) ?? 0) : null,
+      variacion: previos ? variacion(e.total, previos.get(e.nombre) ?? 0) : null,
+      // Las categorías de adentro, para el drill-down.
+      subs: [...e.cats.entries()]
+        .map(([nombre, monto]) => ({
+          nombre,
+          total: monto,
+          pct: e.total > 0 ? monto / e.total : 0,
+        }))
+        .sort((a, b) => b.total - a.total),
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
+// Reparto entre lo que no podés dejar de pagar y lo que elegís gastar.
+// Es la lectura de la regla 50/30/20: no dice cuánto gastaste, dice en qué
+// medida tu gasto es decisión tuya.
+export function porNaturaleza(movs, categorias = []) {
+  const naturalezaDe = new Map(
+    categorias.filter((c) => c.tipo === 'gasto').map((c) => [c.nombre, c.naturaleza || 'otros']),
+  )
+  const totales = { esencial: 0, disfrute: 0, otros: 0 }
+  let total = 0
+  for (const m of movs) {
+    if (m.tipo !== 'gasto') continue
+    const n = naturalezaDe.get(m.categoria) ?? 'otros'
+    totales[n in totales ? n : 'otros'] += m.monto
+    total += m.monto
+  }
+  return {
+    total,
+    partes: Object.entries(totales).map(([clave, monto]) => ({
+      clave,
+      total: monto,
+      pct: total > 0 ? monto / total : 0,
+    })),
+  }
+}
+
 export function porMetodo(movs, tipo = 'gasto') {
   const filtrados = movs.filter((m) => m.tipo === tipo)
   const total = filtrados.reduce((s, m) => s + m.monto, 0)

@@ -9,13 +9,14 @@ import { hoyISO } from './format'
 //  categorías, presupuestos ni fijos). Este archivo sí.
 // ============================================================================
 
-const VERSION = 3
+const VERSION = 4
 
 export async function exportarBackup() {
-  const [movimientos, categorias, metodos, presupuestos, fijos, ajustes, cotizaciones] =
+  const [movimientos, categorias, grupos, metodos, presupuestos, fijos, ajustes, cotizaciones] =
     await Promise.all([
       db.movimientos.toArray(),
       db.categorias.toArray(),
+      db.grupos.toArray(),
       db.metodos.toArray(),
       db.presupuestos.toArray(),
       db.fijos.toArray(),
@@ -29,6 +30,7 @@ export async function exportarBackup() {
     fecha: new Date().toISOString(),
     movimientos,
     categorias,
+    grupos,
     metodos,
     presupuestos,
     fijos,
@@ -61,6 +63,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
   const tablas = [
     db.movimientos,
     db.categorias,
+    db.grupos,
     db.metodos,
     db.presupuestos,
     db.fijos,
@@ -73,6 +76,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
       await Promise.all(tablas.map((t) => t.clear()))
       await db.movimientos.bulkAdd(datos.movimientos)
       await db.categorias.bulkAdd(datos.categorias ?? [])
+      await db.grupos.bulkAdd(datos.grupos ?? [])
       await db.metodos.bulkAdd(datos.metodos ?? [])
       await db.presupuestos.bulkAdd(datos.presupuestos ?? [])
       await db.fijos.bulkAdd(datos.fijos ?? [])
@@ -86,6 +90,13 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
     const existentes = new Set((await db.movimientos.toArray()).map(huella))
     const nuevos = datos.movimientos.filter((m) => !existentes.has(huella(m)))
     await db.movimientos.bulkAdd(nuevos.map(({ id, ...resto }) => resto))
+
+    // Los grupos que falten se suman; los que ya están se respetan.
+    const gruposActuales = new Set((await db.grupos.toArray()).map((g) => `${g.tipo}|${g.nombre}`))
+    const gruposNuevos = (datos.grupos ?? []).filter(
+      (g) => !gruposActuales.has(`${g.tipo}|${g.nombre}`),
+    )
+    if (gruposNuevos.length) await db.grupos.bulkAdd(gruposNuevos.map(({ id, ...r }) => r))
 
     const catsActuales = new Set((await db.categorias.toArray()).map((c) => `${c.tipo}|${c.nombre}`))
     const catsNuevas = (datos.categorias ?? []).filter(

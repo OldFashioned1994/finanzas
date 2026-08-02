@@ -25,6 +25,8 @@ import {
   resumen,
   variacion,
   porCategoria,
+  porGrupo,
+  porNaturaleza,
   porMetodo,
   serieMensual,
   acumuladoDiario,
@@ -45,7 +47,8 @@ import {
   normalizarMontos,
 } from '../utils/moneda'
 import { setAjuste } from '../db'
-import { SERIES, GRIS, ESTADO, FLUJO } from '../utils/paleta'
+import { SERIES, GRIS, ESTADO, FLUJO, aclarar } from '../utils/paleta'
+import { NATURALEZAS } from '../config'
 import Tarjeta from './Tarjeta'
 import Donut from './charts/Donut'
 import EvolucionMeses from './charts/EvolucionMeses'
@@ -53,9 +56,25 @@ import RitmoMes from './charts/RitmoMes'
 
 const TOP_DONUT = 7
 
+// Esencial / disfrute / otros. No son series de datos sino estados, así que
+// usan la escala de semáforo y siempre van con etiqueta al lado.
+const COLOR_NATURALEZA = {
+  esencial: ESTADO.bien,
+  disfrute: ESTADO.atencion,
+  otros: GRIS,
+}
+
 export default function Dashboard({ onVerMovimientos, onToast }) {
-  const { movimientos: crudos, categorias, presupuestos, fijos, cargando, conversor, ajustes } =
-    useDatos()
+  const {
+    movimientos: crudos,
+    categorias,
+    grupos,
+    presupuestos,
+    fijos,
+    cargando,
+    conversor,
+    ajustes,
+  } = useDatos()
   const icono = useIconos()
 
   const [periodo, setPeriodo] = useState('mes')
@@ -63,6 +82,9 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
   const [tipo, setTipo] = useState('gasto')
   const [seleccion, setSeleccion] = useState(null)
   const [monedaVista, setMonedaVista] = useState(ajustes.monedaPanel === USD ? USD : ARS)
+  // 'grupo' muestra el nivel de arriba (Vivienda, Transporte…); 'categoria', el
+  // detalle. Arranca en grupo: es la lectura que responde "en qué se me va".
+  const [nivel, setNivel] = useState(ajustes.nivelPanel === 'categoria' ? 'categoria' : 'grupo')
 
   // Todo el tablero se calcula sobre una sola moneda: los movimientos se
   // convierten una vez acá y el motor de cálculo sigue sin saber de monedas.
@@ -79,14 +101,28 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
     setAjuste('monedaPanel', m)
   }
 
-  // Color estable por categoría: sale de su posición en la taxonomía, no del
-  // ranking del mes. Así "Alimentación" es del mismo color en todos los meses.
+  // El color lo manda el GRUPO y sale de su posición en la taxonomía, no del
+  // ranking del mes: "Vivienda" es del mismo color en todos los meses, y filtrar
+  // no repinta lo que quedó. Cada categoría hereda una variante más clara del
+  // color de su grupo, así se ve a qué familia pertenece.
   const colorDe = useMemo(() => {
-    const mapa = new Map()
+    const porGrupoNombre = new Map()
+    grupos.filter((g) => g.tipo === tipo).forEach((g, i) => {
+      porGrupoNombre.set(g.nombre, SERIES[i % SERIES.length])
+    })
+
+    const porCategoria = new Map()
     const delTipo = categorias.filter((c) => c.tipo === tipo)
-    delTipo.forEach((c, i) => mapa.set(c.nombre, SERIES[i % SERIES.length]))
-    return (nombre) => mapa.get(nombre) ?? GRIS
-  }, [categorias, tipo])
+    const vistosPorGrupo = new Map()
+    for (const c of delTipo) {
+      const base = porGrupoNombre.get(c.grupo) ?? GRIS
+      const n = vistosPorGrupo.get(c.grupo) ?? 0
+      vistosPorGrupo.set(c.grupo, n + 1)
+      porCategoria.set(c.nombre, n === 0 ? base : aclarar(base, Math.min(n * 0.18, 0.55)))
+    }
+
+    return (nombre) => porGrupoNombre.get(nombre) ?? porCategoria.get(nombre) ?? GRIS
+  }, [categorias, grupos, tipo])
 
   const rango = useMemo(() => rangoDe(periodo, mes), [periodo, mes])
   const rangoPrevio = useMemo(() => rangoAnterior(periodo, mes), [periodo, mes])
@@ -100,9 +136,17 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
   const tot = useMemo(() => resumen(delPeriodo), [delPeriodo])
   const totPrevio = useMemo(() => resumen(delPrevio), [delPrevio])
 
-  const categoriasDelPeriodo = useMemo(
-    () => porCategoria(delPeriodo, tipo, rangoPrevio ? delPrevio : null),
-    [delPeriodo, delPrevio, tipo, rangoPrevio],
+  // Las dos vistas se calculan igual; solo cambia por qué se agrupa.
+  const desglose = useMemo(() => {
+    const previos = rangoPrevio ? delPrevio : null
+    return nivel === 'grupo'
+      ? porGrupo(delPeriodo, tipo, categorias, previos)
+      : porCategoria(delPeriodo, tipo, previos)
+  }, [delPeriodo, delPrevio, tipo, rangoPrevio, nivel, categorias])
+
+  const naturaleza = useMemo(
+    () => porNaturaleza(delPeriodo, categorias),
+    [delPeriodo, categorias],
   )
 
   const totalTipo = tipo === 'gasto' ? tot.gastos : tot.ingresos
@@ -110,13 +154,13 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
   // Para el anillo: las 7 primeras y el resto agrupado. Sumar un octavo color
   // no ayudaría a leer nada; "Otras" sí.
   const datosDonut = useMemo(() => {
-    const top = categoriasDelPeriodo.slice(0, TOP_DONUT).map((c) => ({
+    const top = desglose.slice(0, TOP_DONUT).map((c) => ({
       nombre: c.nombre,
       total: c.total,
       pct: c.pct,
       color: colorDe(c.nombre),
     }))
-    const resto = categoriasDelPeriodo.slice(TOP_DONUT)
+    const resto = desglose.slice(TOP_DONUT)
     if (resto.length) {
       const total = resto.reduce((s, c) => s + c.total, 0)
       top.push({
@@ -127,7 +171,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
       })
     }
     return top
-  }, [categoriasDelPeriodo, colorDe, totalTipo])
+  }, [desglose, colorDe, totalTipo])
 
   const metodos = useMemo(() => porMetodo(delPeriodo, tipo), [delPeriodo, tipo])
   const serie12 = useMemo(() => serieMensual(movimientos, mes, 12), [movimientos, mes])
@@ -161,8 +205,13 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
     setSeleccion(null)
   }
 
-  const verMovimientosDe = (categoria) => {
-    onVerMovimientos?.({ mes: periodo === 'mes' ? mes : 'todos', tipo, categoria })
+  const verMovimientosDe = (nombre) => {
+    onVerMovimientos?.({
+      mes: periodo === 'mes' ? mes : 'todos',
+      tipo,
+      // Desde la vista de grupos se filtra por todas sus categorías juntas.
+      ...(nivel === 'grupo' ? { grupo: nombre } : { categoria: nombre }),
+    })
   }
 
   return (
@@ -345,6 +394,28 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
               </div>
             }
           >
+            {/* Grupos = la lectura gruesa (Vivienda, Transporte…).
+                Categorías = el detalle de siempre. */}
+            <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-slate-800/50 p-0.5">
+              {[
+                { id: 'grupo', label: 'Grupos' },
+                { id: 'categoria', label: 'Categorías' },
+              ].map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => {
+                    setNivel(n.id)
+                    setAjuste('nivelPanel', n.id)
+                    setSeleccion(null)
+                  }}
+                  className={`min-h-8 rounded-lg text-xs font-semibold transition-colors ${
+                    nivel === n.id ? 'bg-slate-700 text-slate-100' : 'text-slate-400'
+                  }`}
+                >
+                  {n.label}
+                </button>
+              ))}
+            </div>
             {datosDonut.length === 0 ? (
               <p className="py-6 text-center text-sm text-slate-500">
                 Sin {tipo === 'gasto' ? 'gastos' : 'ingresos'} en este período.
@@ -389,16 +460,61 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
             )}
           </Tarjeta>
 
+          {/* Esenciales vs disfrute: la lectura de la regla 50/30/20. No dice
+              cuánto gastaste, dice qué parte de tu gasto es decisión tuya. */}
+          {tipo === 'gasto' && naturaleza.total > 0 && (
+            <Tarjeta titulo="Cuánto es elección tuya">
+              <div className="flex h-3 overflow-hidden rounded-full bg-slate-800">
+                {naturaleza.partes.map(
+                  (p) =>
+                    p.pct > 0 && (
+                      <span
+                        key={p.clave}
+                        className="h-full first:rounded-l-full last:rounded-r-full"
+                        style={{
+                          width: `${p.pct * 100}%`,
+                          backgroundColor: COLOR_NATURALEZA[p.clave],
+                          // Hueco del color de la superficie entre tramos, para
+                          // que dos colores vecinos no se lean como uno solo.
+                          boxShadow: 'inset -2px 0 0 #0f172a',
+                        }}
+                      />
+                    ),
+                )}
+              </div>
+              <ul className="mt-3 space-y-1.5">
+                {naturaleza.partes.map((p) => (
+                  <li key={p.clave} className="flex items-center gap-2 text-sm">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: COLOR_NATURALEZA[p.clave] }}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-slate-300">
+                      {NATURALEZAS[p.clave].nombre}
+                      <span className="ml-1.5 text-xs text-slate-500">
+                        {NATURALEZAS[p.clave].descripcion}
+                      </span>
+                    </span>
+                    <span className="shrink-0 tabular-nums text-slate-200">{fCorto(p.total)}</span>
+                    <span className="w-11 shrink-0 text-right text-xs tabular-nums text-slate-500">
+                      {formatPct(p.pct, 0)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Tarjeta>
+          )}
+
           {/* Ranking con drill-down */}
-          <Tarjeta titulo="Detalle por categoría">
+          <Tarjeta titulo={nivel === 'grupo' ? 'Detalle por grupo' : 'Detalle por categoría'}>
             <ul className="space-y-2.5">
-              {categoriasDelPeriodo.map((c) => (
+              {desglose.map((c) => (
                 <FilaCategoria
                   key={c.nombre}
                   cat={c}
                   color={colorDe(c.nombre)}
                   icono={icono(c.nombre)}
-                  maximo={categoriasDelPeriodo[0]?.total ?? 1}
+                  maximo={desglose[0]?.total ?? 1}
                   abierta={seleccion === c.nombre}
                   onToggle={() => setSeleccion(seleccion === c.nombre ? null : c.nombre)}
                   onVerMovimientos={() => verMovimientosDe(c.nombre)}
@@ -413,7 +529,7 @@ export default function Dashboard({ onVerMovimientos, onToast }) {
           {tipo === 'gasto' && periodo === 'mes' && presupuestosVista.length > 0 && (
             <PanelPresupuestos
               presupuestos={presupuestosVista}
-              categorias={categoriasDelPeriodo}
+              categorias={porCategoria(delPeriodo, 'gasto')}
               icono={icono}
               ritmo={ritmo}
               esMesActual={esMesActual}

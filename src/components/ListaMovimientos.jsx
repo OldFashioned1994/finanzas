@@ -17,12 +17,13 @@ import { mesActualISO, nombreMes, etiquetaDia } from '../utils/format'
 import { ARS, USD, formatRedondoEn, formatCortoEn, monedaDe } from '../utils/moneda'
 
 export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, onToast }) {
-  const { movimientos, cargando, conversor, ajustes } = useDatos()
+  const { movimientos, categorias, grupos, cargando, conversor, ajustes } = useDatos()
   const icono = useIconos()
 
   const [mes, setMes] = useState(filtroInicial?.mes ?? mesActualISO())
   const [tipo, setTipo] = useState(filtroInicial?.tipo ?? 'todos')
   const [categoria, setCategoria] = useState(filtroInicial?.categoria ?? 'todas')
+  const [grupo, setGrupo] = useState(filtroInicial?.grupo ?? 'todos')
   const [monedaFiltro, setMonedaFiltro] = useState('todas')
   const [busqueda, setBusqueda] = useState('')
   // Los totales se leen en la misma moneda que el panel.
@@ -36,9 +37,16 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     setMes(filtroInicial.mes ?? mesActualISO())
     setTipo(filtroInicial.tipo ?? 'todos')
     setCategoria(filtroInicial.categoria ?? 'todas')
+    setGrupo(filtroInicial.grupo ?? 'todos')
     setBusqueda('')
     setAbierto(null)
   }, [filtroInicial])
+
+  // Qué categorías entran cuando se filtra por grupo.
+  const categoriasDelGrupo = useMemo(() => {
+    if (grupo === 'todos') return null
+    return new Set(categorias.filter((c) => c.grupo === grupo).map((c) => c.nombre))
+  }, [categorias, grupo])
 
   const meses = useMemo(() => {
     const set = new Set(movimientos.map((m) => m.fecha.slice(0, 7)))
@@ -61,6 +69,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     return delMes
       .filter((m) => tipo === 'todos' || m.tipo === tipo)
       .filter((m) => categoria === 'todas' || m.categoria === categoria)
+      .filter((m) => !categoriasDelGrupo || categoriasDelGrupo.has(m.categoria))
       .filter((m) => monedaFiltro === 'todas' || monedaDe(m) === monedaFiltro)
       .filter((m) => {
         if (!q) return true
@@ -75,7 +84,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
       .sort(
         (a, b) => b.fecha.localeCompare(a.fecha) || (b.createdAt ?? 0) - (a.createdAt ?? 0),
       )
-  }, [delMes, tipo, categoria, monedaFiltro, busqueda])
+  }, [delMes, tipo, categoria, categoriasDelGrupo, monedaFiltro, busqueda])
 
   // Los subtotales y totales suman monedas distintas, así que se calculan sobre
   // los montos convertidos; cada movimiento se sigue mostrando en la suya.
@@ -115,11 +124,16 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
   }, [lista, convertido])
 
   const hayFiltro =
-    tipo !== 'todos' || categoria !== 'todas' || monedaFiltro !== 'todas' || busqueda.trim() !== ''
+    tipo !== 'todos' ||
+    categoria !== 'todas' ||
+    grupo !== 'todos' ||
+    monedaFiltro !== 'todas' ||
+    busqueda.trim() !== ''
 
   const limpiarFiltros = () => {
     setTipo('todos')
     setCategoria('todas')
+    setGrupo('todos')
     setMonedaFiltro('todas')
     setBusqueda('')
   }
@@ -185,6 +199,24 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
             <option value="gasto">Solo gastos</option>
             <option value="ingreso">Solo ingresos</option>
           </select>
+          <select
+            value={grupo}
+            onChange={(e) => {
+              setGrupo(e.target.value)
+              setCategoria('todas')
+            }}
+            className={selectCls}
+          >
+            <option value="todos">Todos los grupos</option>
+            {grupos
+              .filter((g) => tipo === 'todos' || g.tipo === tipo)
+              .map((g) => (
+                <option key={g.id} value={g.nombre}>
+                  {g.nombre}
+                </option>
+              ))}
+          </select>
+
           <select
             value={categoria}
             onChange={(e) => setCategoria(e.target.value)}

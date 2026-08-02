@@ -12,6 +12,7 @@ import {
   Sparkles,
   ShieldCheck,
   CircleDollarSign,
+  Layers,
 } from 'lucide-react'
 import { useDatos } from '../state/datos'
 import { setAjuste } from '../db'
@@ -23,6 +24,7 @@ import EditorMetodos from './ajustes/EditorMetodos'
 import EditorPresupuestos from './ajustes/EditorPresupuestos'
 import EditorFijos from './ajustes/EditorFijos'
 import EditorDolar from './ajustes/EditorDolar'
+import EditorGrupos from './ajustes/EditorGrupos'
 
 export default function Ajustes({ onToast }) {
   const { movimientos, categorias, fijos, presupuestos, ajustes, cotizaciones, conversor } =
@@ -68,6 +70,17 @@ export default function Ajustes({ onToast }) {
         onToggle={toggle}
       >
         <EditorDolar onToast={onToast} />
+      </Seccion>
+
+      <Seccion
+        id="grupos"
+        titulo="Grupos"
+        detalle="El nivel de arriba de las categorías"
+        Icon={Layers}
+        abierta={abierta === 'grupos'}
+        onToggle={toggle}
+      >
+        <EditorGrupos onToast={onToast} />
       </Seccion>
 
       <Seccion
