@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   Tags,
@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   Sparkles,
   ShieldCheck,
+  ShieldAlert,
   CircleDollarSign,
   Layers,
   CreditCard as TarjetaCuotas,
@@ -19,6 +20,7 @@ import { useDatos } from '../state/datos'
 import { setAjuste } from '../db'
 import { exportarXlsx } from '../utils/export'
 import { exportarBackup, importarBackup } from '../utils/backup'
+import { estaProtegido, pedirProteccion, estaInstalada, estadoRespaldo } from '../utils/respaldo'
 import Tarjeta from './Tarjeta'
 import EditorCategorias from './ajustes/EditorCategorias'
 import EditorMetodos from './ajustes/EditorMetodos'
@@ -133,7 +135,12 @@ export default function Ajustes({ onToast }) {
         abierta={abierta === 'datos'}
         onToggle={toggle}
       >
-        <PanelDatos movimientos={movimientos} onToast={onToast} conversor={conversor} />
+        <PanelDatos
+          movimientos={movimientos}
+          onToast={onToast}
+          conversor={conversor}
+          ajustes={ajustes}
+        />
       </Seccion>
 
       <Seccion
@@ -158,10 +165,30 @@ export default function Ajustes({ onToast }) {
   )
 }
 
-function PanelDatos({ movimientos, onToast, conversor }) {
+function PanelDatos({ movimientos, onToast, conversor, ajustes }) {
   const inputRef = useRef(null)
   const [modo, setModo] = useState('fusionar')
   const [ocupado, setOcupado] = useState(false)
+  const [protegido, setProtegido] = useState(null)
+  const [instalada] = useState(() => estaInstalada())
+  const respaldo = estadoRespaldo(ajustes, movimientos.length)
+
+  useEffect(() => {
+    estaProtegido().then(setProtegido)
+  }, [])
+
+  const activarProteccion = async () => {
+    const ok = await pedirProteccion()
+    setProtegido(ok)
+    onToast?.(
+      ok
+        ? { msg: 'Listo: el navegador ya no va a borrar tus datos', tone: 'ok' }
+        : {
+            msg: 'El navegador todavía no lo concede. Usá la app unos días más.',
+            tone: 'info',
+          },
+    )
+  }
 
   const exportarPlanilla = async () => {
     if (!movimientos.length) {
@@ -173,8 +200,15 @@ function PanelDatos({ movimientos, onToast, conversor }) {
   }
 
   const respaldar = async () => {
-    const n = await exportarBackup()
-    onToast?.({ msg: `Backup de ${n} movimientos descargado`, tone: 'ok' })
+    const r = await exportarBackup()
+    if (r.cancelado) return
+    onToast?.({
+      msg:
+        r.via === 'compartir'
+          ? `Copia de ${r.cantidad} movimientos guardada`
+          : `Backup de ${r.cantidad} movimientos descargado`,
+      tone: 'ok',
+    })
   }
 
   const restaurar = async (e) => {
@@ -203,6 +237,58 @@ function PanelDatos({ movimientos, onToast, conversor }) {
 
   return (
     <div className="space-y-3">
+      {/* Estado real: si el navegador se comprometió a no borrar nada y cuándo
+          fue la última copia. Sin esto la app pide el permiso a ciegas. */}
+      <div className="space-y-2 rounded-2xl bg-slate-800/40 p-3">
+        <div className="flex items-start gap-2.5">
+          {protegido ? (
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-400" />
+          ) : (
+            <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-400" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-100">
+              {protegido === null
+                ? 'Comprobando…'
+                : protegido
+                  ? 'Tus datos están protegidos'
+                  : 'Protección todavía no activa'}
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+              {protegido
+                ? 'El navegador se comprometió a no borrarlos por falta de espacio ni por pasar tiempo sin abrir la app.'
+                : 'Sin esto, el navegador puede borrar los datos si le falta espacio o si pasás mucho tiempo sin usar la app.'}
+            </p>
+          </div>
+          {protegido === false && (
+            <button
+              onClick={activarProteccion}
+              className="min-h-9 shrink-0 rounded-xl bg-indigo-500 px-3 text-xs font-bold text-white active:scale-95"
+            >
+              Activar
+            </button>
+          )}
+        </div>
+
+        {!instalada && (
+          <p className="flex items-start gap-2 border-t border-white/5 pt-2 text-xs leading-relaxed text-amber-200/90">
+            <ShieldAlert size={14} className="mt-0.5 shrink-0" />
+            <span>
+              Agregala a la pantalla de inicio (Compartir → Agregar a inicio). Instalada, el
+              navegador cuida mucho más sus datos.
+            </span>
+          </p>
+        )}
+
+        <p className="border-t border-white/5 pt-2 text-xs text-slate-500">
+          {respaldo.nunca
+            ? 'Todavía no guardaste ninguna copia.'
+            : `Última copia hace ${respaldo.dias} ${respaldo.dias === 1 ? 'día' : 'días'}${
+                respaldo.sinRespaldar > 0 ? ` · ${respaldo.sinRespaldar} movimientos desde entonces` : ''
+              }`}
+        </p>
+      </div>
+
       <button
         onClick={respaldar}
         className="flex min-h-12 w-full items-center gap-3 rounded-2xl bg-slate-800/70 px-3 text-left active:scale-[0.99]"

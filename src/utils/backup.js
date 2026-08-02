@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { hoyISO } from "./format";
+import { puedeCompartirArchivos, registrarBackup } from "./respaldo";
 
 // ============================================================================
 //  Backup completo en JSON.
@@ -11,6 +12,10 @@ import { hoyISO } from "./format";
 
 const VERSION = 5;
 
+// En iPhone no existe forma de que una web escriba un archivo por su cuenta:
+// lo más cerca es la hoja de compartir, donde "Guardar en Archivos" deja el
+// backup en el propio teléfono, fuera del navegador y sin subirlo a ningún lado.
+// En el resto de las plataformas alcanza con una descarga común.
 export async function exportarBackup() {
   const [
     movimientos,
@@ -55,12 +60,32 @@ export async function exportarBackup() {
     compras,
   };
 
-  descargar(
-    new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
-    `finanzas_backup_${hoyISO()}.json`,
-  );
+  const nombre = `finanzas_backup_${hoyISO()}.json`;
+  const texto = JSON.stringify(backup, null, 2);
+  // Se relee antes de entregarlo: un backup corrupto no sirve de nada y es peor
+  // que no tenerlo, porque da una sensación falsa de estar cubierto.
+  JSON.parse(texto);
+  const blob = new Blob([texto], { type: "application/json" });
 
-  return movimientos.length;
+  let via = "descarga";
+  if (puedeCompartirArchivos()) {
+    try {
+      await navigator.share({
+        files: [new File([blob], nombre, { type: "application/json" })],
+        title: "Copia de Finanzas",
+      });
+      via = "compartir";
+    } catch (err) {
+      // Si cancelaste la hoja de compartir no hay que descargar por las dudas.
+      if (err?.name === "AbortError") return { cantidad: 0, cancelado: true };
+      descargar(blob, nombre);
+    }
+  } else {
+    descargar(blob, nombre);
+  }
+
+  await registrarBackup(movimientos.length);
+  return { cantidad: movimientos.length, via };
 }
 
 // modo 'reemplazar': la app queda exactamente como el backup.

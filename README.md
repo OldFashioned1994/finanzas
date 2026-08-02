@@ -17,9 +17,16 @@ Está publicada como PWA en **https://oldfashioned1994.github.io/finanzas/**.
 Cada `push` a `main` la recompila y actualiza sola (GitHub Actions); el cel toma la
 versión nueva al volver a abrirla.
 
-> **Tus datos viven solo en el dispositivo donde la uses.** No se sincronizan entre
-> el cel y la PC. Bajá un **backup** cada tanto (Ajustes → Datos y respaldo) y
-> guardalo en Drive: es lo único que te devuelve todo si perdés el teléfono.
+> **Tus datos viven solo en el dispositivo donde la uses**, y no salen de ahí:
+> son privados por diseño. Para que además sean duraderos, la app le pide al
+> navegador **almacenamiento permanente** — con eso concedido, deja de borrarlos
+> por falta de espacio o por pasar tiempo sin usarla. En Ajustes → Datos y
+> respaldo podés ver si está activo.
+>
+> Dos cosas que igual conviene saber: instalada en la pantalla de inicio el
+> navegador cuida mucho más sus datos (en iPhone, un sitio suelto en Safari
+> pierde el almacenamiento a los 7 días sin usarlo), y un backup cada tanto es lo
+> único que te devuelve todo si borrás los datos del sitio o cambiás de teléfono.
 
 ## Las cuatro pantallas
 
@@ -165,8 +172,11 @@ La app maneja pesos y dólares, con **cotización manual**: el número lo ponés
 - **Categorías y métodos**: agregar, renombrar, reordenar, archivar. Al renombrar,
   los movimientos ya cargados se actualizan solos. Lo que tiene historial no se
   borra: se archiva (deja de ofrecerse al cargar, pero sigue contando en el panel).
-- **Datos y respaldo**: backup completo `.json` (restaurable), export `.xlsx` para
-  planilla, y restauración en modo *sumar* o *reemplazar*.
+- **Datos y respaldo**: estado del almacenamiento permanente (con botón para
+  activarlo si el navegador todavía no lo concedió) y cuándo fue la última copia.
+  Backup completo `.json` (restaurable), export `.xlsx` para planilla, y
+  restauración en modo *sumar* o *reemplazar*. En iPhone el backup se guarda con
+  la hoja de compartir → *Guardar en Archivos*: queda en el teléfono, sin nube.
 
 ## Correrla en local (desarrollo)
 
