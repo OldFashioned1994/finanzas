@@ -49,10 +49,9 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
   // 1 = un solo pago. Más de 1 genera una compra financiada con sus cuotas.
   const [cuotas, setCuotas] = useState(1)
   const [tags, setTags] = useState([])
-  // El teclado ocupa media pantalla, así que solo está cuando hace falta:
-  // abierto al empezar (lo primero es el monto) y se va solo en cuanto tocás
-  // una categoría, que es cuando ya terminaste de tipear.
-  const [numpadAbierto, setNumpadAbierto] = useState(true)
+  // El teclado ocupa media pantalla: arranca SIEMPRE cerrado y solo aparece
+  // cuando tocás el monto para escribirlo. Se va solo al elegir una categoría.
+  const [numpadAbierto, setNumpadAbierto] = useState(false)
   // Si el usuario eligió a mano, dejamos de pisarle la elección con sugerencias.
   const tocado = useRef({ sub: false, metodo: false })
   const fechaRef = useRef(null)
@@ -96,7 +95,6 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setDescripcion(editando.descripcion || '')
     setMostrarNota(Boolean(editando.descripcion))
     setTags(editando.tags ?? [])
-    setNumpadAbierto(true)
     setMoneda(editando.moneda === USD ? USD : ARS)
     setTc(editando.tc ? String(editando.tc).replace('.', ',') : '')
     setMostrarTc(Boolean(editando.tc))
@@ -116,7 +114,6 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setDescripcion(plantilla.descripcion || '')
     setMostrarNota(Boolean(plantilla.descripcion))
     setTags(plantilla.tags ?? [])
-    setNumpadAbierto(true)
     setMoneda(plantilla.moneda === USD ? USD : ARS)
     // La cotización NO se copia: el dólar de hace un mes no es el de hoy.
     setTc('')
@@ -241,8 +238,7 @@ export default function CargarMovimiento({ editando, plantilla, onGuardado, onCa
     setTipo(nuevoTipo)
     setCuotas(1)
     setTags([])
-    // Listo para el siguiente: lo primero vuelve a ser el monto.
-    setNumpadAbierto(true)
+    setNumpadAbierto(false)
     // La moneda y la cotización se conservan: si estás cargando gastos en
     // dólares, lo más probable es que el próximo también lo sea.
     tocado.current = { sub: false, metodo: false }
