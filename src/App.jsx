@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { PlusCircle, Receipt, PieChart, Settings, Wallet, PiggyBank } from 'lucide-react'
+import { Plus, Receipt, PieChart, Settings, Wallet, PiggyBank, ChevronLeft } from 'lucide-react'
 import CargarMovimiento from './components/CargarMovimiento'
 import ListaMovimientos from './components/ListaMovimientos'
 import Dashboard from './components/Dashboard'
@@ -27,7 +27,9 @@ const TITULOS = {
 
 function Contenido() {
   const { fijos } = useDatos()
-  const [vista, setVista] = useState('cargar')
+  // Abre en el panel: lo primero que querés ver al entrar es cómo venís, no un
+  // formulario en blanco. Para cargar está el botón flotante.
+  const [vista, setVista] = useState('panel')
   const [editando, setEditando] = useState(null)
   const [plantilla, setPlantilla] = useState(null)
   const [filtroMovimientos, setFiltroMovimientos] = useState(null)
@@ -64,17 +66,42 @@ function Contenido() {
     if (editando) {
       setEditando(null)
       setVista('movimientos')
+      return
     }
+    // Cargar es una pantalla aparte: al guardar se cierra y volvés al panel, con
+    // el balance ya actualizado. Si querés cargar otro, el + está ahí mismo.
+    setPlantilla(null)
+    setVista('panel')
+  }
+
+  // La carga es una pantalla aparte: se entra con el botón +, se sale con la
+  // flecha. Mientras estás cargando, la barra de abajo se va para dejar toda la
+  // pantalla a las categorías.
+  const cargando = vista === 'cargar'
+  const volver = () => {
+    setEditando(null)
+    setPlantilla(null)
+    setVista('panel')
   }
 
   return (
     <div className="mx-auto flex h-full max-w-md flex-col">
-      <header className="safe-top z-20 flex items-center justify-between border-b border-white/5 bg-slate-950/60 px-4 pb-2.5 backdrop-blur-md">
-        <h1 className="flex items-center gap-2 text-lg font-bold text-slate-100">
-          <span className="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30">
+      <header className="safe-top z-20 flex items-center gap-2 border-b border-white/5 bg-slate-950/60 px-4 pb-2.5 backdrop-blur-md">
+        {cargando ? (
+          <button
+            onClick={volver}
+            className="-ml-1.5 flex size-9 shrink-0 items-center justify-center rounded-xl text-slate-300 active:scale-95 active:bg-white/5"
+            aria-label="Volver"
+          >
+            <ChevronLeft size={24} />
+          </button>
+        ) : (
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30">
             <Wallet size={17} className="text-white" strokeWidth={2.5} />
           </span>
-          {editando ? 'Editando movimiento' : TITULOS[vista]}
+        )}
+        <h1 className="truncate text-lg font-bold text-slate-100">
+          {editando ? 'Editando movimiento' : cargando ? 'Nuevo movimiento' : TITULOS[vista]}
         </h1>
       </header>
 
@@ -109,11 +136,24 @@ function Contenido() {
         {vista === 'ajustes' && <Ajustes onToast={setToast} />}
       </main>
 
-      {/* La carga está a un toque desde cualquier pantalla */}
-      <nav className="safe-bottom z-20 grid grid-cols-5 gap-0.5 border-t border-white/5 bg-slate-950/85 px-1.5 pt-1.5 backdrop-blur-md">
-        <TabInferior activo={vista === 'cargar'} onClick={() => ir('cargar')} Icon={PlusCircle}>
-          Cargar
-        </TabInferior>
+      {/* Botón de cargar: flotante y siempre a la vista, salvo cuando ya estás
+          cargando. Es la acción principal de la app. */}
+      {!cargando && (
+        <button
+          onClick={() => ir('cargar')}
+          className="safe-bottom fixed bottom-16 right-4 z-30 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-xl shadow-indigo-500/40 transition-transform active:scale-90"
+          aria-label="Cargar un movimiento"
+        >
+          <Plus size={28} strokeWidth={2.5} />
+        </button>
+      )}
+
+      {/* Mientras cargás, la barra se va: toda la pantalla para las categorías */}
+      <nav
+        className={`safe-bottom z-20 grid grid-cols-4 gap-0.5 border-t border-white/5 bg-slate-950/85 px-1.5 pt-1.5 backdrop-blur-md ${
+          cargando ? 'hidden' : ''
+        }`}
+      >
         <TabInferior
           activo={vista === 'panel'}
           onClick={() => ir('panel')}

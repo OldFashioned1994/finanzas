@@ -27,6 +27,7 @@ import {
   porCategoria,
   porGrupo,
   porNaturaleza,
+  pesoSobreIngresos,
   porMetodo,
   serieMensual,
   acumuladoDiario,
@@ -153,6 +154,14 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
     [delPeriodo, categorias],
   )
 
+  // El peso sobre los ingresos se mide SIEMPRE por grupo y sobre los gastos,
+  // aunque estés mirando el desglose de ingresos: la pregunta es qué parte de lo
+  // que entra se compromete, y eso no cambia según lo que tengas seleccionado.
+  const peso = useMemo(() => {
+    const gastosPorGrupo = porGrupo(delPeriodo, 'gasto', categorias)
+    return pesoSobreIngresos(gastosPorGrupo, tot.ingresos)
+  }, [delPeriodo, categorias, tot.ingresos])
+
   const totalTipo = tipo === 'gasto' ? tot.gastos : tot.ingresos
 
   // Para el anillo: las 7 primeras y el resto agrupado. Sumar un octavo color
@@ -240,7 +249,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   }
 
   return (
-    <div className="space-y-3 px-3 pb-6 pt-3">
+    <div className="space-y-3 px-3 pb-24 pt-3">
       {/* Período */}
       <div className="flex items-center gap-2">
         <button
@@ -325,45 +334,104 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         />
       )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-2">
-        <Kpi
-          label="Gastos"
-          valor={tot.gastos}
-          delta={variacion(tot.gastos, totPrevio.gastos)}
-          Icon={TrendingDown}
-          color="text-rose-400"
-          referencia={refComparacion}
-          moneda={monedaVista}
-          // En gastos, subir es malo: el semáforo se invierte respecto de ingresos.
-          invertido
-        />
-        <Kpi
-          label="Ingresos"
-          valor={tot.ingresos}
-          delta={variacion(tot.ingresos, totPrevio.ingresos)}
-          Icon={TrendingUp}
-          color="text-emerald-400"
-          referencia={refComparacion}
-          moneda={monedaVista}
-        />
-        <Kpi
-          label="Balance"
-          valor={tot.balance}
-          Icon={Wallet}
-          moneda={monedaVista}
-          color={tot.balance >= 0 ? 'text-indigo-300' : 'text-rose-400'}
-          nota={tot.balance >= 0 ? 'te sobró' : 'gastaste de más'}
-        />
-        <Kpi
-          label="Tasa de ahorro"
-          texto={tot.tasaAhorro == null ? '—' : formatPct(tot.tasaAhorro, 0)}
-          Icon={PiggyBank}
-          moneda={monedaVista}
-          color={tot.tasaAhorro == null ? 'text-slate-400' : tot.tasaAhorro >= 0.1 ? 'text-emerald-400' : 'text-amber-400'}
-          nota={tot.tasaAhorro == null ? 'sin ingresos cargados' : 'de lo que entró'}
-        />
-      </div>
+      {/* Lo primero que se ve: cuánto te queda. Ingresos, gastos y disponible
+          juntos, que es el dato que da contexto a todo lo demás. */}
+      <Tarjeta className="!bg-slate-900/60">
+        <p className="text-center text-xs text-slate-400">
+          {tot.balance >= 0 ? 'Te queda' : 'Gastaste de más'}
+        </p>
+        <p
+          className={`mt-0.5 text-center text-4xl font-bold tracking-tight tabular-nums ${
+            tot.balance >= 0 ? 'text-slate-50' : 'text-rose-400'
+          }`}
+        >
+          {fRedondo(tot.balance)}
+        </p>
+        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/5 pt-2.5 text-center">
+          <ResumenHero
+            Icon={TrendingUp}
+            color="text-emerald-400"
+            valor={fCorto(tot.ingresos)}
+            etiqueta="entró"
+            delta={formatDelta(variacion(tot.ingresos, totPrevio.ingresos))}
+            deltaBueno={tot.ingresos >= totPrevio.ingresos}
+          />
+          <ResumenHero
+            Icon={TrendingDown}
+            color="text-rose-400"
+            valor={fCorto(tot.gastos)}
+            etiqueta="salió"
+            delta={formatDelta(variacion(tot.gastos, totPrevio.gastos))}
+            // En gastos, subir es lo malo: el semáforo va al revés.
+            deltaBueno={tot.gastos <= totPrevio.gastos}
+          />
+          <ResumenHero
+            Icon={PiggyBank}
+            color="text-indigo-300"
+            valor={tot.tasaAhorro == null ? '—' : formatPct(tot.tasaAhorro, 0)}
+            etiqueta="ahorrado"
+          />
+        </div>
+      </Tarjeta>
+
+      {/* Cuánto de lo que entra se lleva cada grupo. Es la lectura de estructura:
+          no cuánto gastaste, sino qué proporción de tu ingreso se compromete. */}
+      {peso && (
+        <Tarjeta titulo="Cuánto se lleva de lo que entra">
+          <div className="flex h-4 overflow-hidden rounded-full bg-slate-800">
+            {peso.partes.slice(0, TOP_DONUT).map((p) => (
+              <span
+                key={p.nombre}
+                className="h-full"
+                style={{
+                  width: `${Math.min(p.pct, 1) * 100}%`,
+                  backgroundColor: colorDe(p.nombre),
+                  boxShadow: 'inset -2px 0 0 #0f172a',
+                }}
+                title={`${p.nombre}: ${formatPct(p.pct, 0)}`}
+              />
+            ))}
+            {!peso.excedido && (
+              <span
+                className="h-full flex-1 bg-slate-700/60"
+                title={`Disponible: ${formatPct(peso.pctDisponible, 0)}`}
+              />
+            )}
+          </div>
+
+          <ul className="mt-3 space-y-1.5">
+            {peso.partes.slice(0, 6).map((p) => (
+              <li key={p.nombre} className="flex items-center gap-2 text-sm">
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: colorDe(p.nombre) }}
+                />
+                <span className="min-w-0 flex-1 truncate text-slate-300">{p.nombre}</span>
+                <span className="shrink-0 tabular-nums text-slate-400">{fCorto(p.total)}</span>
+                <span className="w-14 shrink-0 text-right font-semibold tabular-nums text-slate-100">
+                  {formatPct(p.pct, 0)}
+                </span>
+              </li>
+            ))}
+            <li className="flex items-center gap-2 border-t border-white/5 pt-2 text-sm">
+              <span className="size-2.5 shrink-0 rounded-full bg-slate-600" />
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-200">
+                {peso.excedido ? 'De más' : 'Te queda'}
+              </span>
+              <span className="shrink-0 tabular-nums text-slate-400">
+                {fCorto(Math.abs(peso.disponible))}
+              </span>
+              <span
+                className={`w-14 shrink-0 text-right font-bold tabular-nums ${
+                  peso.excedido ? 'text-rose-400' : 'text-emerald-400'
+                }`}
+              >
+                {formatPct(Math.abs(peso.pctDisponible), 0)}
+              </span>
+            </li>
+          </ul>
+        </Tarjeta>
+      )}
 
       {/* Patrimonio y deuda: la foto de cómo estás, más allá del mes */}
       {(patrimonio.valor > 0 || deuda.total > 0) && (
@@ -431,8 +499,8 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
             </div>
           </div>
           <p className="mt-2 border-t border-white/5 pt-2 text-xs leading-relaxed text-slate-500">
-            Ya está comprometido {fCorto(proyeccion.comprometido)} en fijos y cuotas por vencer.
-            El resto sale del ritmo de estos {ritmo.transcurridos} días, para los{' '}
+            Ya está comprometido {fCorto(proyeccion.comprometido)} en fijos y cuotas por vencer. El
+            resto sale del ritmo de estos {ritmo.transcurridos} días, para los{' '}
             {proyeccion.diasRestantes} que faltan.
           </p>
         </Tarjeta>
@@ -722,6 +790,28 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
 }
 
 // ---------------------------------------------------------------------------
+
+// Bloque chico del encabezado: entró / salió / ahorrado, con su variación.
+function ResumenHero({ Icon, color, valor, etiqueta, delta, deltaBueno }) {
+  return (
+    <div className="min-w-0">
+      <p className="flex items-center justify-center gap-1">
+        <Icon size={13} className={color} />
+        <span className={`truncate text-base font-bold tabular-nums ${color}`}>{valor}</span>
+      </p>
+      <p className="truncate text-[11px] text-slate-500">{etiqueta}</p>
+      {delta && (
+        <p
+          className={`truncate text-[11px] font-medium ${
+            deltaBueno ? 'text-emerald-400/80' : 'text-amber-400/80'
+          }`}
+        >
+          {delta}
+        </p>
+      )}
+    </div>
+  )
+}
 
 function Kpi({ label, valor, texto, delta, Icon, color, nota, invertido, referencia, moneda }) {
   const fCorto = (n) => formatCortoEn(n, moneda)

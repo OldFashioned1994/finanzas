@@ -284,6 +284,35 @@ export function porGrupo(movs, tipo = 'gasto', categorias = [], movsPrevios = nu
     .sort((a, b) => b.total - a.total)
 }
 
+// Qué parte de lo que ENTRÓ se lleva cada grupo, y cuánto queda disponible.
+//
+// Es una lectura distinta de la del anillo: ahí un grupo se mide contra el total
+// gastado ("Vivienda es el 69% de lo que gasté"); acá se mide contra lo que
+// ganaste ("Vivienda se lleva el 40% de lo que entra"). La segunda es la que
+// dice si tu estructura de gastos es sostenible: las referencias conocidas
+// —hasta 30% en vivienda, o el 50/30/20— están planteadas sobre el ingreso.
+export function pesoSobreIngresos(desglose, ingresos) {
+  if (!ingresos || ingresos <= 0) return null
+  const partes = desglose.map((d) => ({
+    nombre: d.nombre,
+    total: d.total,
+    pct: d.total / ingresos,
+  }))
+  const gastado = desglose.reduce((s, d) => s + d.total, 0)
+  const disponible = ingresos - gastado
+  return {
+    ingresos,
+    gastado,
+    disponible,
+    pctGastado: gastado / ingresos,
+    pctDisponible: disponible / ingresos,
+    partes,
+    // Gastaste más de lo que entró: el "disponible" es negativo y la barra
+    // tiene que reflejarlo en vez de dibujar un hueco que no existe.
+    excedido: disponible < 0,
+  }
+}
+
 // Reparto entre lo que no podés dejar de pagar y lo que elegís gastar.
 // Es la lectura de la regla 50/30/20: no dice cuánto gastaste, dice en qué
 // medida tu gasto es decisión tuya.

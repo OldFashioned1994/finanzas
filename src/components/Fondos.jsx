@@ -44,7 +44,7 @@ export default function Fondos({ onToast }) {
   const esInversion = clase === 'inversion'
 
   return (
-    <div className="space-y-3 px-3 pb-6 pt-3">
+    <div className="space-y-3 px-3 pb-24 pt-3">
       <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-800/50 p-1 ring-1 ring-white/5">
         <button
           onClick={() => {

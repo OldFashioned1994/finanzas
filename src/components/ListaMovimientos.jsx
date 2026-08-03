@@ -168,7 +168,7 @@ export default function ListaMovimientos({ filtroInicial, onEditar, onRepetir, o
     'min-h-10 rounded-xl border border-slate-700/70 bg-slate-800/60 px-3 text-sm text-slate-100 outline-none focus:border-indigo-500'
 
   return (
-    <div className="space-y-3 px-3 pb-6 pt-3">
+    <div className="space-y-3 px-3 pb-24 pt-3">
       {/* Buscador */}
       <div className="flex gap-2">
         <div className="flex min-h-11 flex-1 items-center gap-2 rounded-2xl border border-slate-700/70 bg-slate-800/60 px-3">
