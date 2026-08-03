@@ -11,6 +11,11 @@
 //  Tocar acá no cambia nada en un dispositivo donde la app ya se usó: sirve
 //  únicamente para definir con qué arranca una instalación nueva.
 //
+//  Por eso mismo esto es lo ÚNICO que ve otra persona si le pasás la app (sus
+//  datos y los tuyos nunca se cruzan: cada uno tiene su propia base local).
+//  Mantener esta lista genérica: nada que hable de la vida de alguien en
+//  particular. Las marcas de uso masivo están bien; los datos personales no.
+//
 //  Formato:
 //    categorias = { "Nombre de la categoría": ["SUBCAT 1", "SUBCAT 2", ...] }
 //    metodos    = ["Método 1", "Método 2", ...]
@@ -88,16 +93,16 @@ export const CONFIG = {
   // -------------------------------- GASTOS ---------------------------------
   gasto: {
     categorias: {
-      'Alimentación': ['COTO', 'CARNICERIA', 'VERDULERIA', 'PEYA'],
-      'Cuidado personal': ['PELUQUERIA', 'GIMNASIO', 'ROPA', 'ZAPAS'],
+      'Alimentación': ['COTO', 'CARNICERÍA', 'VERDULERÍA', 'PEYA'],
+      'Cuidado personal': ['PELUQUERÍA', 'GIMNASIO', 'ROPA', 'ZAPAS'],
       'Educación': ['CURSOS'],
       'Equipamiento': ['ELECTRO', 'MUEBLES'],
       'Hogar': ['LIMPIEZA'],
-      'Imprevistos/varios': ['MULTA GAMBI'],
-      'Ocio y entretenimiento': ['CINE', 'BARES', 'PESCA', 'STREAMING', 'JUEGOS', 'JUNTADA'],
+      'Imprevistos/varios': ['MULTAS', 'VARIOS'],
+      'Ocio y entretenimiento': ['CINE', 'BARES', 'HOBBIES', 'STREAMING', 'JUEGOS', 'JUNTADA'],
       'Regalos y eventos': ['REGALOS'],
       'Salud': ['OBRA SOCIAL', 'FARMACIA'],
-      'Servicios': ['LUZ', 'INTERNET', 'SEGURO DE INCENDIOS', 'TUENTI'],
+      'Servicios': ['LUZ', 'GAS', 'AGUA', 'INTERNET', 'CELULAR', 'SEGURO'],
       'Servicios financieros': ['BANCO'],
       'Transporte': ['UBER', 'SUBE'],
       'Vivienda': ['ALQUILER', 'EXPENSAS'],
