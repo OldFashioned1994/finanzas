@@ -43,6 +43,16 @@ input[type='date']::-webkit-calendar-picker-indicator {
 .safe-bottom {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
+
+/* El botón flotante se separa del borde con la POSICIÓN, no con padding: un
+   padding interno correría el ícono y dejaría el + descentrado dentro del
+   círculo.
+   La cuenta: la barra de abajo mide unos 70px (52 de alto + 6 de padding
+   superior + 12 de área segura), así que arrancar en 5.5rem lo deja apoyado
+   por encima de ella sin tapar ninguna pestaña. */
+.fab {
+  bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
 .safe-top {
   padding-top: max(0.5rem, env(safe-area-inset-top));
 }

@@ -141,7 +141,7 @@ function Contenido() {
       {!cargando && (
         <button
           onClick={() => ir('cargar')}
-          className="safe-bottom fixed bottom-16 right-4 z-30 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-xl shadow-indigo-500/40 transition-transform active:scale-90"
+          className="fab fixed right-4 z-30 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-xl shadow-indigo-500/40 transition-transform active:scale-90"
           aria-label="Cargar un movimiento"
         >
           <Plus size={28} strokeWidth={2.5} />
