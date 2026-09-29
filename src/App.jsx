@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Receipt, PieChart, Settings, Wallet, PiggyBank, ChevronLeft } from 'lucide-react'
 import CargarMovimiento from './components/CargarMovimiento'
 import ListaMovimientos from './components/ListaMovimientos'
@@ -8,6 +8,7 @@ import Fondos from './components/Fondos'
 import Toast from './components/Toast'
 import { DatosProvider, useDatos } from './state/datos'
 import { fijosPendientes } from './utils/calc'
+import { importarDelCerebro } from './cerebro'
 
 export default function App() {
   return (
@@ -36,6 +37,20 @@ function Contenido() {
   const [toast, setToast] = useState(null)
 
   const pendientes = useMemo(() => fijosPendientes(fijos).length, [fijos])
+
+  // Al abrir, trae los gastos capturados por WhatsApp (segundo cerebro).
+  // Silencioso salvo que haya algo: sin token, sin red o sin pendientes no molesta.
+  useEffect(() => {
+    importarDelCerebro()
+      .then((r) => {
+        if (r.importados)
+          setToast({
+            msg: `${r.importados} gasto${r.importados === 1 ? '' : 's'} del cerebro importado${r.importados === 1 ? '' : 's'} 🧠`,
+            tone: 'ok',
+          })
+      })
+      .catch(() => {})
+  }, [])
 
   const ir = (destino) => {
     if (destino !== 'cargar') setEditando(null)

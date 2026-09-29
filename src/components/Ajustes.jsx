@@ -10,6 +10,7 @@ import {
   Upload,
   FileSpreadsheet,
   Sparkles,
+  Brain,
   ShieldCheck,
   ShieldAlert,
   CircleDollarSign,
@@ -29,6 +30,7 @@ import EditorFijos from './ajustes/EditorFijos'
 import EditorDolar from './ajustes/EditorDolar'
 import EditorGrupos from './ajustes/EditorGrupos'
 import EditorCompras from './ajustes/EditorCompras'
+import EditorCerebro from './ajustes/EditorCerebro'
 
 export default function Ajustes({ onToast }) {
   const {
@@ -141,6 +143,17 @@ export default function Ajustes({ onToast }) {
           conversor={conversor}
           ajustes={ajustes}
         />
+      </Seccion>
+
+      <Seccion
+        id="cerebro"
+        titulo="Cerebro"
+        detalle="Gastos por WhatsApp, importados solos"
+        Icon={Brain}
+        abierta={abierta === 'cerebro'}
+        onToggle={toggle}
+      >
+        <EditorCerebro onToast={onToast} />
       </Seccion>
 
       <Seccion
