@@ -10,7 +10,7 @@ import { puedeCompartirArchivos, registrarBackup } from './respaldo'
 //  categorías, presupuestos ni fijos). Este archivo sí.
 // ============================================================================
 
-const VERSION = 5
+const VERSION = 6
 
 // En iPhone no existe forma de que una web escriba un archivo por su cuenta:
 // lo más cerca es la hoja de compartir, donde "Guardar en Archivos" deja el
@@ -29,6 +29,7 @@ export async function exportarBackup() {
     fondos,
     opsFondo,
     compras,
+    plan,
   ] = await Promise.all([
     db.movimientos.toArray(),
     db.categorias.toArray(),
@@ -41,6 +42,7 @@ export async function exportarBackup() {
     db.fondos.toArray(),
     db.opsFondo.toArray(),
     db.compras.toArray(),
+    db.plan.toArray(),
   ])
 
   const backup = {
@@ -58,6 +60,7 @@ export async function exportarBackup() {
     fondos,
     opsFondo,
     compras,
+    plan,
   }
 
   const nombre = `finanzas_backup_${hoyISO()}.json`
@@ -114,6 +117,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
     db.fondos,
     db.opsFondo,
     db.compras,
+    db.plan,
   ]
 
   return db.transaction('rw', tablas, async () => {
@@ -130,6 +134,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
       await db.fondos.bulkAdd(datos.fondos ?? [])
       await db.opsFondo.bulkAdd(datos.opsFondo ?? [])
       await db.compras.bulkAdd(datos.compras ?? [])
+      await db.plan.bulkAdd(datos.plan ?? [])
       return datos.movimientos.length
     }
 
@@ -159,6 +164,11 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
       (m) => !metsActuales.has(`${m.tipo}|${m.nombre}`),
     )
     if (metsNuevos.length) await db.metodos.bulkAdd(metsNuevos.map(({ id, ...r }) => r))
+
+    const huellaPlan = (l) => [l.tipo, l.concepto, l.monto].join('|')
+    const planActual = new Set((await db.plan.toArray()).map(huellaPlan))
+    const planNuevo = (datos.plan ?? []).filter((l) => !planActual.has(huellaPlan(l)))
+    if (planNuevo.length) await db.plan.bulkAdd(planNuevo.map(({ id, ...r }) => r))
 
     // Las cotizaciones se pisan por mes: no hay riesgo de duplicar.
     if (datos.cotizaciones?.length) await db.cotizaciones.bulkPut(datos.cotizaciones)
