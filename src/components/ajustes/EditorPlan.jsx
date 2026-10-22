@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, Power, X } from 'lucide-react'
+import { Plus, Trash2, Power, X, ClipboardPaste } from 'lucide-react'
 import { useDatos, useGruposDe } from '../../state/datos'
 import { agregarLineaPlan, actualizarLineaPlan, borrarLineaPlan } from '../../db'
 import { parseMonto, limpiarInputMonto } from '../../utils/monto'
@@ -12,6 +12,7 @@ import { formatPct } from '../../utils/format'
 export default function EditorPlan({ onToast }) {
   const { plan, conversor, ajustes } = useDatos()
   const [creando, setCreando] = useState(null) // 'ingreso' | 'gasto' | null
+  const [pegando, setPegando] = useState(null)
 
   const monedaVista = ajustes.monedaPanel === USD ? USD : ARS
   const r = resumenPlan(plan, conversor, monedaVista)
@@ -52,6 +53,9 @@ export default function EditorPlan({ onToast }) {
         creando={creando === 'ingreso'}
         onCrear={() => setCreando('ingreso')}
         onCancelar={() => setCreando(null)}
+        pegando={pegando === 'ingreso'}
+        onPegar={() => setPegando('ingreso')}
+        onCerrarPegar={() => setPegando(null)}
         tipo="ingreso"
         total={r.ingresos}
         monedaVista={monedaVista}
@@ -64,6 +68,9 @@ export default function EditorPlan({ onToast }) {
         creando={creando === 'gasto'}
         onCrear={() => setCreando('gasto')}
         onCancelar={() => setCreando(null)}
+        pegando={pegando === 'gasto'}
+        onPegar={() => setPegando('gasto')}
+        onCerrarPegar={() => setPegando(null)}
         tipo="gasto"
         total={r.gastos}
         monedaVista={monedaVista}
@@ -85,6 +92,9 @@ function Bloque({
   monedaVista,
   onToast,
   base,
+  pegando,
+  onPegar,
+  onCerrarPegar,
 }) {
   return (
     <div>
@@ -101,17 +111,33 @@ function Bloque({
         ))}
       </ul>
 
-      {creando ? (
+      {creando && (
         <div className="mt-2">
           <Formulario tipo={tipo} onCancelar={onCancelar} onToast={onToast} />
         </div>
-      ) : (
-        <button
-          onClick={onCrear}
-          className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-800/70 text-sm font-semibold text-slate-200 active:scale-95"
-        >
-          <Plus size={17} /> Agregar
-        </button>
+      )}
+
+      {pegando && (
+        <div className="mt-2">
+          <Pegar tipo={tipo} onCerrar={onCerrarPegar} onToast={onToast} />
+        </div>
+      )}
+
+      {!creando && !pegando && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            onClick={onCrear}
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-2xl bg-slate-800/70 text-sm font-semibold text-slate-200 active:scale-95"
+          >
+            <Plus size={17} /> Agregar
+          </button>
+          <button
+            onClick={onPegar}
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-2xl bg-slate-800/70 text-sm font-semibold text-slate-200 active:scale-95"
+          >
+            <ClipboardPaste size={16} /> Pegar
+          </button>
+        </div>
       )}
     </div>
   )
@@ -161,6 +187,123 @@ function Linea({ linea, base, onToast }) {
         <Trash2 size={15} />
       </button>
     </li>
+  )
+}
+
+// Carga varias líneas de una. Formato por línea: concepto, monto, grupo.
+// Tolera coma, punto y coma o tabulación, el símbolo $ y los puntos de miles.
+export function parsearLineasPlan(texto, gruposValidos = []) {
+  const filas = []
+  const ignoradas = []
+
+  for (const cruda of texto.split('\n')) {
+    const linea = cruda.trim()
+    if (!linea) continue
+
+    const partes = linea.split(/[\t;,]+/).map((p) => p.trim())
+    const concepto = partes[0]
+    // El monto puede venir en cualquier columna: se toma la primera que sea un
+    // número, así no importa si pegaste "ALQUILER, 600000" o "600000, ALQUILER".
+    let monto = NaN
+    let iMonto = -1
+    for (let i = 0; i < partes.length; i++) {
+      const n = Number(partes[i].replace(/[$\s.]/g, '').replace(',', '.'))
+      if (Number.isFinite(n) && n > 0 && /\d/.test(partes[i])) {
+        monto = n
+        iMonto = i
+        break
+      }
+    }
+    if (!concepto || !Number.isFinite(monto)) {
+      ignoradas.push(linea)
+      continue
+    }
+
+    const resto = partes.filter((_, i) => i !== 0 && i !== iMonto)
+    const pedido = resto.join(' ').trim().toLowerCase()
+    const grupo =
+      gruposValidos.find((g) => g.toLowerCase() === pedido) ??
+      gruposValidos.find((g) => pedido && g.toLowerCase().startsWith(pedido)) ??
+      ''
+
+    filas.push({ concepto: iMonto === 0 ? partes[1] || concepto : concepto, monto, grupo })
+  }
+
+  return { filas, ignoradas }
+}
+
+function Pegar({ tipo, onCerrar, onToast }) {
+  const [texto, setTexto] = useState('')
+  const grupos = useGruposDe(tipo)
+  const nombres = grupos.map((g) => g.nombre)
+  const { filas, ignoradas } = parsearLineasPlan(texto, nombres)
+
+  const guardar = async () => {
+    if (!filas.length) return
+    for (const f of filas) {
+      await agregarLineaPlan({
+        tipo,
+        concepto: f.concepto,
+        monto: f.monto,
+        moneda: ARS,
+        grupo: f.grupo || nombres.at(-1) || '',
+      })
+    }
+    onCerrar()
+    onToast?.({ msg: filas.length + ' líneas agregadas', tone: 'ok' })
+  }
+
+  return (
+    <div className="animate-fade-up space-y-2 rounded-2xl border border-indigo-500/25 bg-slate-900/60 p-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold capitalize text-slate-200">Pegar {tipo}s</h4>
+        <button onClick={onCerrar} className="text-slate-500" aria-label="Cancelar">
+          <X size={18} />
+        </button>
+      </div>
+
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        rows={6}
+        autoFocus
+        placeholder={'ALQUILER, 600000, Vivienda\nLUZ, 150000, Vivienda'}
+        className="w-full rounded-xl border border-slate-700/70 bg-slate-800/60 p-3 font-mono text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-indigo-500"
+        aria-label="Líneas a pegar"
+      />
+
+      {filas.length > 0 && (
+        <ul className="max-h-40 space-y-1 overflow-y-auto">
+          {filas.map((f, i) => (
+            <li key={i} className="flex items-center gap-2 rounded-lg bg-slate-800/40 px-2 py-1 text-xs">
+              <span className="min-w-0 flex-1 truncate text-slate-300">{f.concepto}</span>
+              <span className="shrink-0 tabular-nums text-slate-200">
+                {formatEn(f.monto, ARS)}
+              </span>
+              <span className="w-28 shrink-0 truncate text-right text-slate-500">
+                {f.grupo || '—'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {ignoradas.length > 0 && (
+        <p className="text-xs text-amber-300">
+          {ignoradas.length} línea{ignoradas.length === 1 ? '' : 's'} sin monto: {ignoradas[0]}
+        </p>
+      )}
+
+      <button
+        onClick={guardar}
+        disabled={!filas.length}
+        className={`min-h-11 w-full rounded-xl font-bold active:scale-95 ${
+          filas.length ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-600'
+        }`}
+      >
+        Agregar {filas.length || ''}
+      </button>
+    </div>
   )
 }
 
