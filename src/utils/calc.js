@@ -313,6 +313,53 @@ export function pesoSobreIngresos(desglose, ingresos) {
   }
 }
 
+// El ejercicio teórico: qué estructura tendría el mes si se cumple el plan.
+// Mismo criterio que pesoSobreIngresos —todo se mide contra lo que entra— pero
+// sobre montos planeados en vez de movimientos cargados.
+export function resumenPlan(lineas, conversor, moneda = 'ARS') {
+  const activas = lineas.filter((l) => l.activo)
+  const aMoneda = (l) =>
+    conversor
+      ? (conversor.enMoneda({ monto: l.monto, moneda: l.moneda ?? 'ARS', fecha: hoyISO() }, moneda) ??
+        0)
+      : l.monto
+
+  let ingresos = 0
+  const porGrupo = new Map()
+  const detalle = { ingreso: [], gasto: [] }
+
+  for (const l of activas) {
+    const monto = aMoneda(l)
+    detalle[l.tipo]?.push({ ...l, montoConvertido: monto })
+    if (l.tipo === 'ingreso') {
+      ingresos += monto
+      continue
+    }
+    const g = l.grupo || 'Sin grupo'
+    porGrupo.set(g, (porGrupo.get(g) ?? 0) + monto)
+  }
+
+  const gastos = [...porGrupo.values()].reduce((s, n) => s + n, 0)
+  const disponible = ingresos - gastos
+
+  return {
+    ingresos,
+    gastos,
+    disponible,
+    // Sin ingresos planeados no hay porcentaje posible: dividir por cero no dice nada.
+    pctDisponible: ingresos > 0 ? disponible / ingresos : null,
+    excedido: disponible < 0,
+    detalle,
+    grupos: [...porGrupo.entries()]
+      .map(([nombre, total]) => ({
+        nombre,
+        total,
+        pct: ingresos > 0 ? total / ingresos : null,
+      }))
+      .sort((a, b) => b.total - a.total),
+  }
+}
+
 // Reparto entre lo que no podés dejar de pagar y lo que elegís gastar.
 // Es la lectura de la regla 50/30/20: no dice cuánto gastaste, dice en qué
 // medida tu gasto es decisión tuya.

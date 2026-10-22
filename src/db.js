@@ -76,6 +76,12 @@ import { CONFIG, ICONOS, GRUPOS, CLASIFICACION } from './config'
 //    id, descripcion, montoTotal, cantidadCuotas, primerMes, diaMes,
 //    categoria, subcategoria, metodo, moneda, tc, activa
 //
+//  plan          el ejercicio teórico: cuánto esperás que entre y que salga
+//    id, tipo ('ingreso' | 'gasto'), concepto, monto, grupo, moneda,
+//    activo, orden
+//    No son movimientos: no tocan ningún total de lo real. Sirven para ver la
+//    estructura porcentual del mes antes de que pase.
+//
 //  ajustes       clave/valor suelto (preferencias)
 //    clave, valor
 // ============================================================================
@@ -152,6 +158,10 @@ db.version(5).stores({
   fondos: '++id, clase, orden',
   opsFondo: '++id, fondoId, fecha',
   compras: '++id, activa',
+})
+
+db.version(6).stores({
+  plan: '++id, tipo, orden',
 })
 
 // Instalación nueva: no hay upgrade que correr, así que sembramos acá.
@@ -828,6 +838,29 @@ function sumarMesISO(mesISO, delta) {
 // ---------------------------------------------------------------------------
 //  Ajustes (clave/valor)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+//  Plan mensual (gastos e ingresos teóricos)
+// ---------------------------------------------------------------------------
+
+export async function agregarLineaPlan(linea) {
+  const orden = await db.plan.count()
+  return db.plan.add({ activo: 1, moneda: 'ARS', orden, ...linea })
+}
+
+export async function actualizarLineaPlan(id, cambios) {
+  return db.plan.update(id, cambios)
+}
+
+export async function borrarLineaPlan(id) {
+  return db.plan.delete(id)
+}
+
+export async function reordenarPlan(ids) {
+  return db.transaction('rw', db.plan, async () => {
+    for (let i = 0; i < ids.length; i++) await db.plan.update(ids[i], { orden: i })
+  })
+}
 
 export async function setAjuste(clave, valor) {
   return db.ajustes.put({ clave, valor })

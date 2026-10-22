@@ -16,6 +16,7 @@ import {
   CircleDollarSign,
   Layers,
   CreditCard as TarjetaCuotas,
+  ClipboardList,
 } from 'lucide-react'
 import { useDatos } from '../state/datos'
 import { setAjuste } from '../db'
@@ -30,6 +31,7 @@ import EditorFijos from './ajustes/EditorFijos'
 import EditorDolar from './ajustes/EditorDolar'
 import EditorGrupos from './ajustes/EditorGrupos'
 import EditorCompras from './ajustes/EditorCompras'
+import EditorPlan from './ajustes/EditorPlan'
 import EditorCerebro from './ajustes/EditorCerebro'
 
 export default function Ajustes({ onToast }) {
@@ -42,6 +44,7 @@ export default function Ajustes({ onToast }) {
     cotizaciones,
     conversor,
     compras,
+    plan,
   } = useDatos()
   const [abierta, setAbierta] = useState(null)
 
@@ -49,6 +52,17 @@ export default function Ajustes({ onToast }) {
 
   return (
     <div className="space-y-2 px-3 pb-6 pt-3">
+      <Seccion
+        id="plan"
+        titulo="Plan mensual"
+        detalle={plan.length ? plan.length + ' líneas' : 'sin cargar'}
+        Icon={ClipboardList}
+        abierta={abierta === 'plan'}
+        onToggle={toggle}
+      >
+        <EditorPlan onToast={onToast} />
+      </Seccion>
+
       <Seccion
         id="presupuestos"
         titulo="Presupuestos"

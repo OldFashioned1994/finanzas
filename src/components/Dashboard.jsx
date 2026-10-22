@@ -28,6 +28,7 @@ import {
   porGrupo,
   porNaturaleza,
   pesoSobreIngresos,
+  resumenPlan,
   porMetodo,
   serieMensual,
   acumuladoDiario,
@@ -76,6 +77,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
     fondos,
     opsFondo,
     compras,
+    plan,
     cargando,
     conversor,
     ajustes,
@@ -90,6 +92,8 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   // 'grupo' muestra el nivel de arriba (Vivienda, Transporte…); 'categoria', el
   // detalle. Arranca en grupo: es la lectura que responde "en qué se me va".
   const [nivel, setNivel] = useState(ajustes.nivelPanel === 'categoria' ? 'categoria' : 'grupo')
+  // 'real' = lo cargado; 'plan' = el ejercicio teórico de Ajustes.
+  const [modo, setModo] = useState('real')
 
   // Todo el tablero se calcula sobre una sola moneda: los movimientos se
   // convierten una vez acá y el motor de cálculo sigue sin saber de monedas.
@@ -141,6 +145,25 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   const tot = useMemo(() => resumen(delPeriodo), [delPeriodo])
   const totPrevio = useMemo(() => resumen(delPrevio), [delPrevio])
 
+  const planCalc = useMemo(
+    () => resumenPlan(plan, conversor, monedaVista),
+    [plan, conversor, monedaVista],
+  )
+  const hayPlan = planCalc.ingresos > 0 || planCalc.gastos > 0
+  const enPlan = modo === 'plan' && hayPlan
+
+  // El encabezado y la estructura porcentual leen del plan o de lo real según
+  // el modo; el resto del panel sigue mostrando siempre lo real.
+  const hero = enPlan
+    ? {
+        ingresos: planCalc.ingresos,
+        gastos: planCalc.gastos,
+        balance: planCalc.disponible,
+        tasaAhorro: planCalc.pctDisponible,
+      }
+    : tot
+
+
   // Las dos vistas se calculan igual; solo cambia por qué se agrupa.
   const desglose = useMemo(() => {
     const previos = rangoPrevio ? delPrevio : null
@@ -157,10 +180,23 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   // El peso sobre los ingresos se mide SIEMPRE por grupo y sobre los gastos,
   // aunque estés mirando el desglose de ingresos: la pregunta es qué parte de lo
   // que entra se compromete, y eso no cambia según lo que tengas seleccionado.
-  const peso = useMemo(() => {
+  const pesoReal = useMemo(() => {
     const gastosPorGrupo = porGrupo(delPeriodo, 'gasto', categorias)
     return pesoSobreIngresos(gastosPorGrupo, tot.ingresos)
   }, [delPeriodo, categorias, tot.ingresos])
+
+  // Mismo formato que pesoSobreIngresos para que la tarjeta no tenga que saber
+  // de dónde vienen los números.
+  const peso = enPlan
+    ? planCalc.ingresos > 0
+      ? {
+          partes: planCalc.grupos,
+          disponible: planCalc.disponible,
+          pctDisponible: planCalc.pctDisponible,
+          excedido: planCalc.excedido,
+        }
+      : null
+    : pesoReal
 
   const totalTipo = tipo === 'gasto' ? tot.gastos : tot.ingresos
 
@@ -251,7 +287,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   return (
     <div className="space-y-3 px-3 pb-24 pt-3">
       {/* Período */}
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${enPlan ? 'hidden' : ''}`}>
         <button
           onClick={() => irAMes(-1)}
           disabled={periodo === 'todo'}
@@ -311,7 +347,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         </button>
       </div>
 
-      {sinCotizacion > 0 && (
+      {!enPlan && sinCotizacion > 0 && (
         <button
           onClick={() => cambiarMoneda(ARS)}
           className="flex w-full items-center gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-left text-xs text-amber-200"
@@ -325,7 +361,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
       )}
 
       {/* Gastos fijos por confirmar */}
-      {pendientes.length > 0 && (
+      {!enPlan && pendientes.length > 0 && (
         <PendientesFijos
           pendientes={pendientes}
           icono={icono}
@@ -334,41 +370,60 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         />
       )}
 
+      {hayPlan && (
+        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-800/50 p-1 ring-1 ring-white/5">
+          {[
+            { id: 'real', label: 'Real' },
+            { id: 'plan', label: 'Plan' },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setModo(m.id)}
+              className={`min-h-9 rounded-xl text-sm font-semibold transition-all active:scale-95 ${
+                modo === m.id ? 'bg-indigo-500 text-white' : 'text-slate-400'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Lo primero que se ve: cuánto te queda. Ingresos, gastos y disponible
           juntos, que es el dato que da contexto a todo lo demás. */}
       <Tarjeta className="!bg-slate-900/60">
         <p className="text-center text-xs text-slate-400">
-          {tot.balance >= 0 ? 'Te queda' : 'Gastaste de más'}
+          {hero.balance >= 0 ? 'Te queda' : enPlan ? 'Te pasás' : 'Gastaste de más'}
         </p>
         <p
           className={`mt-0.5 text-center text-4xl font-bold tracking-tight tabular-nums ${
-            tot.balance >= 0 ? 'text-slate-50' : 'text-rose-400'
+            hero.balance >= 0 ? 'text-slate-50' : 'text-rose-400'
           }`}
         >
-          {fRedondo(tot.balance)}
+          {fRedondo(hero.balance)}
         </p>
         <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/5 pt-2.5 text-center">
           <ResumenHero
             Icon={TrendingUp}
             color="text-emerald-400"
-            valor={fCorto(tot.ingresos)}
-            etiqueta="entró"
-            delta={formatDelta(variacion(tot.ingresos, totPrevio.ingresos))}
+            valor={fCorto(hero.ingresos)}
+            etiqueta={enPlan ? 'entra' : 'entró'}
+            delta={enPlan ? null : formatDelta(variacion(tot.ingresos, totPrevio.ingresos))}
             deltaBueno={tot.ingresos >= totPrevio.ingresos}
           />
           <ResumenHero
             Icon={TrendingDown}
             color="text-rose-400"
-            valor={fCorto(tot.gastos)}
-            etiqueta="salió"
-            delta={formatDelta(variacion(tot.gastos, totPrevio.gastos))}
+            valor={fCorto(hero.gastos)}
+            etiqueta={enPlan ? 'sale' : 'salió'}
+            delta={enPlan ? null : formatDelta(variacion(tot.gastos, totPrevio.gastos))}
             // En gastos, subir es lo malo: el semáforo va al revés.
             deltaBueno={tot.gastos <= totPrevio.gastos}
           />
           <ResumenHero
             Icon={PiggyBank}
             color="text-indigo-300"
-            valor={tot.tasaAhorro == null ? '—' : formatPct(tot.tasaAhorro, 0)}
+            valor={hero.tasaAhorro == null ? '—' : formatPct(hero.tasaAhorro, 0)}
             etiqueta="ahorrado"
           />
         </div>
@@ -434,7 +489,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
       )}
 
       {/* Patrimonio y deuda: la foto de cómo estás, más allá del mes */}
-      {(patrimonio.valor > 0 || deuda.total > 0) && (
+      {!enPlan && (patrimonio.valor > 0 || deuda.total > 0) && (
         <div className="grid grid-cols-2 gap-2">
           {patrimonio.valor > 0 && (
             <button
@@ -472,7 +527,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
       )}
 
       {/* Cierre estimado del mes */}
-      {proyeccion && periodo === 'mes' && proyeccion.confiable && (
+      {!enPlan && proyeccion && periodo === 'mes' && proyeccion.confiable && (
         <Tarjeta titulo="Cómo va a cerrar el mes">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
@@ -506,7 +561,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         </Tarjeta>
       )}
 
-      {!hayDatos ? (
+      {enPlan ? null : !hayDatos ? (
         <Tarjeta>
           <div className="flex flex-col items-center gap-3 py-10 text-center text-slate-500">
             <Inbox size={38} strokeWidth={1.5} />

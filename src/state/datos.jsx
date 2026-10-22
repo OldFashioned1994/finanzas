@@ -23,6 +23,7 @@ export function DatosProvider({ children }) {
   const fondos = useLiveQuery(() => db.fondos.toArray(), [], undefined)
   const opsFondo = useLiveQuery(() => db.opsFondo.toArray(), [], undefined)
   const compras = useLiveQuery(() => db.compras.toArray(), [], undefined)
+  const plan = useLiveQuery(() => db.plan.toArray(), [], undefined)
 
   const valor = useMemo(() => {
     const ordenar = (arr) => [...(arr ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
@@ -39,6 +40,7 @@ export function DatosProvider({ children }) {
       fondos: ordenar(fondos),
       opsFondo: opsFondo ?? [],
       compras: compras ?? [],
+      plan: ordenar(plan),
       ajustes: prefs,
       // Un único conversor para toda la app: si cambia una cotización, todo lo
       // que se muestre en la otra moneda se recalcula solo.
@@ -56,6 +58,7 @@ export function DatosProvider({ children }) {
     fondos,
     opsFondo,
     compras,
+    plan,
   ])
 
   return <DatosContext.Provider value={valor}>{children}</DatosContext.Provider>
