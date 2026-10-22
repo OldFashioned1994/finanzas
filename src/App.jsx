@@ -137,6 +137,7 @@ function Contenido() {
             onVerMovimientos={verMovimientos}
             onToast={setToast}
             onIrAFondos={() => ir('fondos')}
+            onIrAAjustes={() => ir('ajustes')}
           />
         )}
         {vista === 'movimientos' && (

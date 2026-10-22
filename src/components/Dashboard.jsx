@@ -49,7 +49,8 @@ import {
   formatCortoEn,
   normalizarMontos,
 } from '../utils/moneda'
-import { setAjuste } from '../db'
+import { parseMonto, limpiarInputMonto } from '../utils/monto'
+import { setAjuste, actualizarLineaPlan } from '../db'
 import { resumenFondos, deudaEnCuotas, proyeccionCierre } from '../utils/fondos'
 import { SERIES, GRIS, ESTADO, FLUJO, aclarar } from '../utils/paleta'
 import { NATURALEZAS } from '../config'
@@ -68,7 +69,7 @@ const COLOR_NATURALEZA = {
   otros: GRIS,
 }
 
-export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
+export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos, onIrAAjustes }) {
   const {
     movimientos: crudos,
     categorias,
@@ -95,6 +96,7 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
   const [nivel, setNivel] = useState(ajustes.nivelPanel === 'categoria' ? 'categoria' : 'grupo')
   // 'real' = lo cargado; 'plan' = el ejercicio teórico de Ajustes.
   const [modo, setModo] = useState('real')
+  const [grupoPlan, setGrupoPlan] = useState(null)
 
   // Todo el tablero se calcula sobre una sola moneda: los movimientos se
   // convierten una vez acá y el motor de cálculo sigue sin saber de monedas.
@@ -376,6 +378,146 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         />
       )}
 
+      {comparado && (
+        <Tarjeta titulo="Plan del mes">
+          <div className="grid grid-cols-3 gap-2 border-b border-white/5 pb-3 text-center">
+            <div>
+              <p className="text-xs text-slate-400">Entra</p>
+              <p className="mt-0.5 truncate text-base font-bold tabular-nums text-emerald-400">
+                {fCorto(planCalc.ingresos)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Sale</p>
+              <p className="mt-0.5 truncate text-base font-bold tabular-nums text-rose-400">
+                {fCorto(planCalc.gastos)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Queda</p>
+              <p
+                className={`mt-0.5 truncate text-base font-bold tabular-nums ${
+                  planCalc.excedido ? 'text-rose-400' : 'text-indigo-300'
+                }`}
+              >
+                {fCorto(planCalc.disponible)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mb-1.5 mt-3 flex items-center gap-2 px-0.5 text-[11px] text-slate-500">
+            <span className="min-w-0 flex-1" />
+            <span className="w-16 shrink-0 text-right">Plan</span>
+            <span className="w-10 shrink-0 text-right">%</span>
+            <span className="w-10 shrink-0 text-right">Real</span>
+          </div>
+          <ul className="space-y-1.5">
+            {comparado.filas.map((fila) => (
+              <li key={fila.nombre}>
+                <button
+                  onClick={() => setGrupoPlan(grupoPlan === fila.nombre ? null : fila.nombre)}
+                  className="flex w-full items-center gap-2 text-left text-sm"
+                >
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: colorDe(fila.nombre) }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-slate-300">{fila.nombre}</span>
+                  <span className="w-16 shrink-0 text-right tabular-nums text-slate-400">
+                    {fCorto(fila.totalPlan)}
+                  </span>
+                  <span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-100">
+                    {formatPct(fila.pctPlan, 0)}
+                  </span>
+                  <span
+                    className={`w-10 shrink-0 text-right tabular-nums ${
+                      fila.pctReal > fila.pctPlan ? 'text-amber-400' : 'text-slate-500'
+                    }`}
+                  >
+                    {formatPct(fila.pctReal, 0)}
+                  </span>
+                </button>
+
+                {grupoPlan === fila.nombre && (
+                  <ul className="animate-fade-up mt-1.5 space-y-1 rounded-xl bg-slate-800/40 p-2">
+                    {plan
+                      .filter((l) => l.tipo === 'gasto' && (l.grupo || 'Sin grupo') === fila.nombre)
+                      .map((l) => (
+                        <LineaPlanEditable key={l.id} linea={l} />
+                      ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+            <li className="border-t border-white/5 pt-2">
+              <button
+                onClick={() => setGrupoPlan(grupoPlan === '__ingresos' ? null : '__ingresos')}
+                className="flex w-full items-center gap-2 text-left text-sm"
+              >
+                <span className="size-2.5 shrink-0 rounded-full bg-emerald-500" />
+                <span className="min-w-0 flex-1 truncate text-slate-300">Entra</span>
+                <span className="w-16 shrink-0 text-right tabular-nums text-slate-400">
+                  {fCorto(planCalc.ingresos)}
+                </span>
+                <span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-100">
+                  100%
+                </span>
+                <span className="w-10 shrink-0 text-right tabular-nums text-slate-500">
+                  {tot.ingresos > 0 && planCalc.ingresos > 0
+                    ? formatPct(tot.ingresos / planCalc.ingresos, 0)
+                    : '—'}
+                </span>
+              </button>
+              {grupoPlan === '__ingresos' && (
+                <ul className="animate-fade-up mt-1.5 space-y-1 rounded-xl bg-slate-800/40 p-2">
+                  {plan
+                    .filter((l) => l.tipo === 'ingreso')
+                    .map((l) => (
+                      <LineaPlanEditable key={l.id} linea={l} />
+                    ))}
+                </ul>
+              )}
+            </li>
+
+            <li className="flex items-center gap-2 border-t border-white/5 pt-2 text-sm">
+              <span className="size-2.5 shrink-0 rounded-full bg-slate-600" />
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-200">Te queda</span>
+              <span className="w-16 shrink-0 text-right tabular-nums text-slate-400">
+                {fCorto(comparado.disponible.totalPlan)}
+              </span>
+              <span className="w-10 shrink-0 text-right font-bold tabular-nums text-emerald-400">
+                {formatPct(comparado.disponible.pctPlan, 0)}
+              </span>
+              <span
+                className={`w-10 shrink-0 text-right tabular-nums ${
+                  comparado.disponible.pctReal == null
+                    ? 'text-slate-600'
+                    : comparado.disponible.pctReal < comparado.disponible.pctPlan
+                      ? 'text-amber-400'
+                      : 'text-slate-500'
+                }`}
+              >
+                {comparado.disponible.pctReal == null
+                  ? '—'
+                  : formatPct(comparado.disponible.pctReal, 0)}
+              </span>
+            </li>
+          </ul>
+        </Tarjeta>
+      )}
+
+      {!hayPlan && (
+        <button
+          onClick={() => onIrAAjustes?.()}
+          className="flex w-full items-center justify-between gap-2 rounded-2xl border border-indigo-500/25 bg-indigo-500/10 p-3 text-left active:scale-[0.99]"
+        >
+          <span className="text-sm font-semibold text-indigo-100">Plan del mes sin cargar</span>
+          <span className="shrink-0 rounded-xl bg-indigo-500 px-3 py-1.5 text-xs font-bold text-white">
+            Cargar
+          </span>
+        </button>
+      )}
+
       {hayPlan && (
         <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-800/50 p-1 ring-1 ring-white/5">
           {[
@@ -434,57 +576,6 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
           />
         </div>
       </Tarjeta>
-
-      {comparado && (
-        <Tarjeta titulo="Plan contra lo real">
-          <div className="mb-1.5 flex items-center gap-2 px-0.5 text-[11px] text-slate-500">
-            <span className="min-w-0 flex-1" />
-            <span className="w-12 shrink-0 text-right">Plan</span>
-            <span className="w-12 shrink-0 text-right">Real</span>
-          </div>
-          <ul className="space-y-1.5">
-            {comparado.filas.map((f) => (
-              <li key={f.nombre} className="flex items-center gap-2 text-sm">
-                <span
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: colorDe(f.nombre) }}
-                />
-                <span className="min-w-0 flex-1 truncate text-slate-300">{f.nombre}</span>
-                <span className="w-12 shrink-0 text-right tabular-nums text-slate-500">
-                  {formatPct(f.pctPlan, 0)}
-                </span>
-                <span
-                  className={`w-12 shrink-0 text-right font-semibold tabular-nums ${
-                    f.pctReal > f.pctPlan ? 'text-amber-400' : 'text-slate-100'
-                  }`}
-                >
-                  {formatPct(f.pctReal, 0)}
-                </span>
-              </li>
-            ))}
-            <li className="flex items-center gap-2 border-t border-white/5 pt-2 text-sm">
-              <span className="size-2.5 shrink-0 rounded-full bg-slate-600" />
-              <span className="min-w-0 flex-1 truncate font-medium text-slate-200">Te queda</span>
-              <span className="w-12 shrink-0 text-right tabular-nums text-slate-500">
-                {formatPct(comparado.disponible.pctPlan, 0)}
-              </span>
-              <span
-                className={`w-12 shrink-0 text-right font-bold tabular-nums ${
-                  comparado.disponible.pctReal == null
-                    ? 'text-slate-500'
-                    : comparado.disponible.pctReal < comparado.disponible.pctPlan
-                      ? 'text-amber-400'
-                      : 'text-emerald-400'
-                }`}
-              >
-                {comparado.disponible.pctReal == null
-                  ? '—'
-                  : formatPct(comparado.disponible.pctReal, 0)}
-              </span>
-            </li>
-          </ul>
-        </Tarjeta>
-      )}
 
       {/* Cuánto de lo que entra se lleva cada grupo. Es la lectura de estructura:
           no cuánto gastaste, sino qué proporción de tu ingreso se compromete. */}
@@ -902,6 +993,41 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
 }
 
 // ---------------------------------------------------------------------------
+
+// Una línea del plan, con el monto editable ahí mismo: ajustar un alquiler no
+// debería obligar a entrar a Ajustes.
+function LineaPlanEditable({ linea }) {
+  const [texto, setTexto] = useState('')
+  const [editando, setEditando] = useState(false)
+
+  const confirmar = () => {
+    setEditando(false)
+    const n = parseMonto(texto)
+    if (Number.isFinite(n) && n > 0 && n !== linea.monto) {
+      actualizarLineaPlan(linea.id, { monto: n })
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-2 text-sm">
+      <span className="min-w-0 flex-1 truncate text-slate-400">{linea.concepto}</span>
+      <input
+        value={editando ? texto : formatEn(linea.monto, linea.moneda ?? ARS)}
+        inputMode="decimal"
+        onFocus={(e) => {
+          setTexto(String(linea.monto).replace('.', ','))
+          setEditando(true)
+          requestAnimationFrame(() => e.target.select())
+        }}
+        onChange={(e) => setTexto(limpiarInputMonto(e.target.value))}
+        onBlur={confirmar}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        className="min-h-9 w-32 shrink-0 rounded-lg bg-slate-900/60 px-2 text-right text-sm tabular-nums text-slate-100 outline-none focus:ring-1 focus:ring-indigo-500"
+        aria-label={'Monto de ' + linea.concepto}
+      />
+    </li>
+  )
+}
 
 // Bloque chico del encabezado: entró / salió / ahorrado, con su variación.
 function ResumenHero({ Icon, color, valor, etiqueta, delta, deltaBueno }) {
