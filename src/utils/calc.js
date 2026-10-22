@@ -360,6 +360,37 @@ export function resumenPlan(lineas, conversor, moneda = 'ARS') {
   }
 }
 
+// El plan contra la realidad, grupo por grupo, los dos medidos contra lo que
+// entra. Aparecen los grupos de los dos lados: uno que planeaste y todavía no
+// gastaste dice tanto como uno que gastaste sin haberlo planeado.
+export function compararPlanReal(peso, plan) {
+  if (!plan || plan.ingresos <= 0) return null
+
+  const real = new Map((peso?.partes ?? []).map((p) => [p.nombre, p]))
+  const teorico = new Map(plan.grupos.map((g) => [g.nombre, g]))
+  const nombres = [...new Set([...teorico.keys(), ...real.keys()])]
+
+  const filas = nombres
+    .map((nombre) => ({
+      nombre,
+      pctPlan: teorico.get(nombre)?.pct ?? 0,
+      pctReal: real.get(nombre)?.pct ?? 0,
+      totalPlan: teorico.get(nombre)?.total ?? 0,
+      totalReal: real.get(nombre)?.total ?? 0,
+    }))
+    .sort((a, b) => b.pctPlan - a.pctPlan || b.pctReal - a.pctReal)
+
+  return {
+    filas,
+    disponible: {
+      pctPlan: plan.pctDisponible ?? 0,
+      pctReal: peso?.pctDisponible ?? null,
+      totalPlan: plan.disponible,
+      totalReal: peso?.disponible ?? null,
+    },
+  }
+}
+
 // Reparto entre lo que no podés dejar de pagar y lo que elegís gastar.
 // Es la lectura de la regla 50/30/20: no dice cuánto gastaste, dice en qué
 // medida tu gasto es decisión tuya.

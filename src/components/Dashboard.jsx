@@ -29,6 +29,7 @@ import {
   porNaturaleza,
   pesoSobreIngresos,
   resumenPlan,
+  compararPlanReal,
   porMetodo,
   serieMensual,
   acumuladoDiario,
@@ -197,6 +198,11 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         }
       : null
     : pesoReal
+
+  const comparado = useMemo(
+    () => (enPlan || !hayPlan ? null : compararPlanReal(pesoReal, planCalc)),
+    [enPlan, hayPlan, pesoReal, planCalc],
+  )
 
   const totalTipo = tipo === 'gasto' ? tot.gastos : tot.ingresos
 
@@ -429,9 +435,60 @@ export default function Dashboard({ onVerMovimientos, onToast, onIrAFondos }) {
         </div>
       </Tarjeta>
 
+      {comparado && (
+        <Tarjeta titulo="Plan contra lo real">
+          <div className="mb-1.5 flex items-center gap-2 px-0.5 text-[11px] text-slate-500">
+            <span className="min-w-0 flex-1" />
+            <span className="w-12 shrink-0 text-right">Plan</span>
+            <span className="w-12 shrink-0 text-right">Real</span>
+          </div>
+          <ul className="space-y-1.5">
+            {comparado.filas.map((f) => (
+              <li key={f.nombre} className="flex items-center gap-2 text-sm">
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: colorDe(f.nombre) }}
+                />
+                <span className="min-w-0 flex-1 truncate text-slate-300">{f.nombre}</span>
+                <span className="w-12 shrink-0 text-right tabular-nums text-slate-500">
+                  {formatPct(f.pctPlan, 0)}
+                </span>
+                <span
+                  className={`w-12 shrink-0 text-right font-semibold tabular-nums ${
+                    f.pctReal > f.pctPlan ? 'text-amber-400' : 'text-slate-100'
+                  }`}
+                >
+                  {formatPct(f.pctReal, 0)}
+                </span>
+              </li>
+            ))}
+            <li className="flex items-center gap-2 border-t border-white/5 pt-2 text-sm">
+              <span className="size-2.5 shrink-0 rounded-full bg-slate-600" />
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-200">Te queda</span>
+              <span className="w-12 shrink-0 text-right tabular-nums text-slate-500">
+                {formatPct(comparado.disponible.pctPlan, 0)}
+              </span>
+              <span
+                className={`w-12 shrink-0 text-right font-bold tabular-nums ${
+                  comparado.disponible.pctReal == null
+                    ? 'text-slate-500'
+                    : comparado.disponible.pctReal < comparado.disponible.pctPlan
+                      ? 'text-amber-400'
+                      : 'text-emerald-400'
+                }`}
+              >
+                {comparado.disponible.pctReal == null
+                  ? '—'
+                  : formatPct(comparado.disponible.pctReal, 0)}
+              </span>
+            </li>
+          </ul>
+        </Tarjeta>
+      )}
+
       {/* Cuánto de lo que entra se lleva cada grupo. Es la lectura de estructura:
           no cuánto gastaste, sino qué proporción de tu ingreso se compromete. */}
-      {peso && (
+      {peso && !comparado && (
         <Tarjeta titulo="Cuánto se lleva de lo que entra">
           <div className="flex h-4 overflow-hidden rounded-full bg-slate-800">
             {peso.partes.slice(0, TOP_DONUT).map((p) => (
