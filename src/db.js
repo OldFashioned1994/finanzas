@@ -1,5 +1,6 @@
 import Dexie from 'dexie'
 import { CONFIG, ICONOS, GRUPOS, CLASIFICACION } from './config'
+import { normalizar } from './utils/fijos-import'
 
 // ============================================================================
 //  Base de datos local (IndexedDB) vía Dexie. Sin backend, sin nube, sin login.
@@ -588,6 +589,54 @@ export async function actualizarFijo(id, cambios) {
 
 export async function borrarFijo(id) {
   return db.fijos.delete(id)
+}
+
+// Importa los fijos ya revisados (ver utils/fijos-import.js). Lo que falte (categoría,
+// subcategoría, método) se crea con el nombre del archivo; todo o nada.
+export async function importarFijos(items) {
+  return db.transaction('rw', db.categorias, db.grupos, db.metodos, db.fijos, async () => {
+    let n = 0
+    for (const f of items) {
+      if (!f.incluir) continue
+      const cats = await db.categorias.where('tipo').equals(f.tipo).toArray()
+      let cat = cats.find((c) => normalizar(c.nombre) === normalizar(f.categoria))
+      if (!cat) {
+        const grupos = await db.grupos.where('tipo').equals(f.tipo).toArray()
+        const grupo = grupos.find((g) => normalizar(g.nombre) === normalizar(f.grupo))?.nombre
+        const id = await agregarCategoria({
+          tipo: f.tipo,
+          nombre: f.categoria,
+          grupo,
+          naturaleza: f.naturaleza ?? undefined,
+        })
+        cat = await db.categorias.get(id)
+      }
+      let sub = cat.subcategorias.find((s) => normalizar(s) === normalizar(f.subcategoria))
+      if (!sub) {
+        sub = f.subcategoria.trim()
+        await agregarSubcategoria(cat.id, sub)
+      }
+      const mets = await db.metodos.where('tipo').equals(f.tipo).toArray()
+      let metodo = mets.find((m) => normalizar(m.nombre) === normalizar(f.metodo))?.nombre
+      if (!metodo) {
+        metodo = f.metodo.trim()
+        await agregarMetodo({ tipo: f.tipo, nombre: metodo })
+      }
+      await agregarFijo({
+        tipo: f.tipo,
+        monto: f.monto,
+        moneda: f.moneda,
+        categoria: cat.nombre,
+        subcategoria: sub,
+        metodo,
+        descripcion: f.descripcion,
+        diaMes: f.diaMes,
+        debito: f.debito,
+      })
+      n++
+    }
+    return n
+  })
 }
 
 // Confirma un fijo del mes: crea el movimiento y marca el fijo como hecho.

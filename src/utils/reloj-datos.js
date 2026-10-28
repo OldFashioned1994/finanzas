@@ -53,6 +53,7 @@ export function armarVencimientos({ fijos, hoy = new Date() }) {
       monto: Number(f.monto) || 0,
       moneda: f.moneda ?? 'ARS',
       diaMes: Math.min(Math.max(Number(f.diaMes) || 1, 1), 31),
+      debito: f.debito === true,
     }))
     .sort((a, b) => a.diaMes - b.diaMes)
   return { mes, items }

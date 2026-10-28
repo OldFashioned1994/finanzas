@@ -1226,14 +1226,14 @@ function PendientesFijos({ pendientes, icono, onToast, conversor }) {
     setOcupado(f.id)
     await confirmarFijo(f, mes, { tc })
     setOcupado(null)
-    onToast?.({ msg: `${f.subcategoria} confirmado`, tone: 'ok' })
+    onToast?.({ msg: `${f.descripcion || f.subcategoria} confirmado`, tone: 'ok' })
   }
 
   const omitir = async (f) => {
     setOcupado(f.id)
     await omitirFijo(f.id, mes)
     setOcupado(null)
-    onToast?.({ msg: `${f.subcategoria} salteado este mes`, tone: 'info' })
+    onToast?.({ msg: `${f.descripcion || f.subcategoria} salteado este mes`, tone: 'info' })
   }
 
   return (
@@ -1252,10 +1252,11 @@ function PendientesFijos({ pendientes, icono, onToast, conversor }) {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium text-slate-100">
-                {f.subcategoria}
+                {f.descripcion || f.subcategoria}
               </span>
               <span className="block truncate text-xs text-slate-500">
                 día {f.diaMes} · {formatEn(f.monto, f.moneda)}
+                {f.debito && ' · débito automático'}
               </span>
             </span>
             <button

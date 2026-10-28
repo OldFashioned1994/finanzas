@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --import ./pruebas/registrar.mjs --test src/utils/reloj-datos.test.js src/reloj.test.js"
+    "test": "node --import ./pruebas/registrar.mjs --test src/utils/reloj-datos.test.js src/utils/fijos-import.test.js src/reloj.test.js"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",

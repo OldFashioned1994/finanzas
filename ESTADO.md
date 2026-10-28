@@ -132,6 +132,21 @@ REGLA DE TONO: cuando pidió esto, mi propuesta inicial (panel de riesgos, resca
 automático, niveles urgentes) le pareció exagerada. Quería lo mínimo que funcione.
 Preferir lo simple y no dramatizar el riesgo.
 
+## Servicios como fijos e importación (2026-10-28)
+
+- Los fijos tienen `descripcion` (Edenor, Claro…) y `debito` (true si se debita solo de una
+  tarjeta). Se ven en Ajustes → Gastos fijos y en «Fijos por confirmar» del panel, y `debito`
+  viaja al reloj en los vencimientos (campo nuevo, el buzón lo guarda tal cual).
+- **Importar fijos**: Ajustes → Gastos fijos → Importar, un JSON
+  `{ formato: 'finanzas-fijos', version: 1, fijos: [...] }` (ver `src/utils/fijos-import.js`).
+  Antes de guardar muestra la lista: lo repetido viene destildado y se marca lo que se va a
+  crear (categoría, subcategoría, método). Los nombres se comparan sin acentos ni mayúsculas.
+- El archivo con los servicios de Nico vive en su OneDrive, fuera del repo: **datos personales,
+  nunca al repo, que es público** (tampoco este ESTADO, que se publica).
+- Siguen (pedido del 28-oct): etapa 2, leer el PDF del resumen de Visa/Mastercard Galicia en el
+  teléfono (revisar y confirmar, conciliar con lo ya cargado, cada consumo en su mes); etapa 3,
+  resultado económico del mes.
+
 ## Gotchas técnicos
 
 - **Gráficos en SVG propio, sin librería** (Recharts pesa 136 KB gzip, más que la app).
