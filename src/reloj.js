@@ -17,7 +17,7 @@ import {
 // ============================================================================
 
 // en desarrollo se puede apuntar a un buzón local (VITE_RELOJ_URL); el real lo vincula solo Nico
-export const RELOJ_URL = import.meta.env?.VITE_RELOJ_URL || 'https://gestion.skyterra.com.ar/reloj'
+export const RELOJ_URL = import.meta.env?.VITE_RELOJ_URL || 'https://reloj.187-127-41-72.sslip.io'
 /** Las claves de esta app con el buzón: { casa, reloj } (y las que esperan respuesta). */
 export const AJUSTES_PRIVADOS = ['reloj', 'relojPendiente', 'relojPublicado']
 const CATEGORIA_RESPALDO = 'Reloj'
