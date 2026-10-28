@@ -9,6 +9,7 @@ import Toast from './components/Toast'
 import { DatosProvider, useDatos } from './state/datos'
 import { fijosPendientes } from './utils/calc'
 import { importarDelCerebro } from './cerebro'
+import { sincronizarReloj } from './reloj'
 
 export default function App() {
   return (
@@ -50,6 +51,31 @@ function Contenido() {
           })
       })
       .catch(() => {})
+  }, [])
+
+  // El reloj: al abrir y cada vez que la app vuelve a primer plano (en el iPhone la PWA no
+  // se recarga al volver). Silencioso salvo que haya traído gastos.
+  useEffect(() => {
+    let enCurso = false
+    const traer = () => {
+      if (enCurso || document.hidden) return
+      enCurso = true
+      sincronizarReloj()
+        .then((r) => {
+          if (r.importados)
+            setToast({
+              msg: `${r.importados} gasto${r.importados === 1 ? '' : 's'} del reloj ⌚`,
+              tone: 'ok',
+            })
+        })
+        .catch(() => {})
+        .finally(() => {
+          enCurso = false
+        })
+    }
+    traer()
+    document.addEventListener('visibilitychange', traer)
+    return () => document.removeEventListener('visibilitychange', traer)
   }, [])
 
   const ir = (destino) => {

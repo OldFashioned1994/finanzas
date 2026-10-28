@@ -17,6 +17,7 @@ import {
   Layers,
   CreditCard as TarjetaCuotas,
   ClipboardList,
+  Watch,
 } from 'lucide-react'
 import { useDatos } from '../state/datos'
 import { setAjuste } from '../db'
@@ -33,6 +34,7 @@ import EditorGrupos from './ajustes/EditorGrupos'
 import EditorCompras from './ajustes/EditorCompras'
 import EditorPlan from './ajustes/EditorPlan'
 import EditorCerebro from './ajustes/EditorCerebro'
+import EditorReloj from './ajustes/EditorReloj'
 
 export default function Ajustes({ onToast }) {
   const {
@@ -168,6 +170,17 @@ export default function Ajustes({ onToast }) {
         onToggle={toggle}
       >
         <EditorCerebro onToast={onToast} />
+      </Seccion>
+
+      <Seccion
+        id="reloj"
+        titulo="Reloj"
+        detalle="T-Rex 3"
+        Icon={Watch}
+        abierta={abierta === 'reloj'}
+        onToggle={toggle}
+      >
+        <EditorReloj onToast={onToast} />
       </Seccion>
 
       <Seccion

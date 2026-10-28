@@ -1,6 +1,11 @@
 import { db } from '../db'
 import { hoyISO } from './format'
 import { puedeCompartirArchivos, registrarBackup } from './respaldo'
+import { AJUSTES_PRIVADOS } from '../reloj'
+
+// Las claves del reloj no viajan en el respaldo (se comparte por WhatsApp o Drive) y al
+// restaurar se conservan las del teléfono: un respaldo viejo no deja la app desvinculada.
+const publico = (ajustes) => (ajustes ?? []).filter((a) => !AJUSTES_PRIVADOS.includes(a?.clave))
 
 // ============================================================================
 //  Backup completo en JSON.
@@ -55,7 +60,7 @@ export async function exportarBackup() {
     metodos,
     presupuestos,
     fijos,
-    ajustes,
+    ajustes: publico(ajustes),
     cotizaciones,
     fondos,
     opsFondo,
@@ -122,6 +127,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
 
   return db.transaction('rw', tablas, async () => {
     if (modo === 'reemplazar') {
+      const privados = (await db.ajustes.bulkGet(AJUSTES_PRIVADOS)).filter(Boolean)
       await Promise.all(tablas.map((t) => t.clear()))
       await db.movimientos.bulkAdd(datos.movimientos)
       await db.categorias.bulkAdd(datos.categorias ?? [])
@@ -129,7 +135,7 @@ export async function importarBackup(archivo, modo = 'reemplazar') {
       await db.metodos.bulkAdd(datos.metodos ?? [])
       await db.presupuestos.bulkAdd(datos.presupuestos ?? [])
       await db.fijos.bulkAdd(datos.fijos ?? [])
-      await db.ajustes.bulkPut(datos.ajustes ?? [])
+      await db.ajustes.bulkPut([...publico(datos.ajustes), ...privados])
       await db.cotizaciones.bulkPut(datos.cotizaciones ?? [])
       await db.fondos.bulkAdd(datos.fondos ?? [])
       await db.opsFondo.bulkAdd(datos.opsFondo ?? [])
